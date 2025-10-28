@@ -53,21 +53,15 @@ export function useHashConnect() {
   const connect = async () => {
     dispatch(setLoading(true));
     try {
+      // Only run on client side
       if (typeof window === 'undefined') return;
 
-      const { getHashConnectInstance, getInitPromise } = await import('../services/hashconnect');
+      // Dynamically import HashConnect service
+      const { getHashConnectInstance } = await import('../services/hashconnect');
 
       console.log("Attempting to connect to wallet...");
-      await getInitPromise();
       const instance = getHashConnectInstance();
-      // Explicitly create a pairing string before opening modal
-      const pairingString = await (instance as any).createPairingString?.("testnet");
-      console.log("hashconnect - Pairing string created:", pairingString, "testnet");
-      if (pairingString) {
-        await (instance as any).openPairingModal(pairingString, "testnet");
-      } else {
-        await (instance as any).openPairingModal();
-      }
+      await instance.openPairingModal();
     } catch (error) {
       console.error('Connection failed:', error);
       dispatch(setLoading(false));
