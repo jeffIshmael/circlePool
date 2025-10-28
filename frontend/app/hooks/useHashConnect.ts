@@ -1,0 +1,99 @@
+"use client";
+
+import { useEffect } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
+import type { RootState } from '../store';
+import { setLoading, setConnected, setDisconnected } from '../store/hashconnectSlice';
+
+export function useHashConnect() {
+  const dispatch = useDispatch();
+  const hashconnectState = useSelector((state: RootState) => state.hashconnect);
+  const { isConnected, accountId, isLoading } = hashconnectState;
+
+  useEffect(() => {
+    const setupHashConnect = async () => {
+      try {
+        if (typeof window === 'undefined') return;
+
+        const { getHashConnectInstance, getInitPromise, getConnectedAccountIds } = await import('../services/hashconnect');
+
+        const instance = getHashConnectInstance();
+        await getInitPromise();
+
+        instance.pairingEvent.on(() => {
+          const accountIds = getConnectedAccountIds();
+          if (accountIds && accountIds.length > 0) {
+            dispatch(setConnected({
+              accountId: accountIds[0].toString()
+            }));
+          }
+        });
+
+        instance.disconnectionEvent.on(() => {
+          dispatch(setDisconnected());
+        });
+
+        instance.connectionStatusChangeEvent.on(() => {});
+
+        const accountIds = getConnectedAccountIds();
+        if (accountIds && accountIds.length > 0) {
+          dispatch(setConnected({
+            accountId: accountIds[0].toString()
+          }));
+        }
+      } catch (error) {
+        console.error('HashConnect setup failed:', error);
+        dispatch(setLoading(false));
+      }
+    };
+
+    setupHashConnect();
+  }, [dispatch]);
+
+  const connect = async () => {
+    dispatch(setLoading(true));
+    try {
+      if (typeof window === 'undefined') return;
+
+      const { getHashConnectInstance, getInitPromise } = await import('../services/hashconnect');
+
+      console.log("Attempting to connect to wallet...");
+      await getInitPromise();
+      const instance = getHashConnectInstance();
+      // Explicitly create a pairing string before opening modal
+      const pairingString = await (instance as any).createPairingString?.("testnet");
+      console.log("hashconnect - Pairing string created:", pairingString, "testnet");
+      if (pairingString) {
+        await (instance as any).openPairingModal(pairingString, "testnet");
+      } else {
+        await (instance as any).openPairingModal();
+      }
+    } catch (error) {
+      console.error('Connection failed:', error);
+      dispatch(setLoading(false));
+    }
+  };
+
+  const disconnect = async () => {
+    try {
+      if (typeof window === 'undefined') return;
+
+      const { getHashConnectInstance } = await import('../services/hashconnect');
+
+      const instance = getHashConnectInstance();
+      instance.disconnect();
+      dispatch(setDisconnected());
+    } catch (error) {
+      console.error('Disconnect failed:', error);
+      dispatch(setDisconnected());
+    }
+  };
+
+  return {
+    isConnected,
+    accountId,
+    isLoading,
+    connect,
+    disconnect,
+  };
+}

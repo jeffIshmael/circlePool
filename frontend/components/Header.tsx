@@ -3,6 +3,13 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
+import dynamic from 'next/dynamic';
+
+const HashConnectButton = dynamic(
+  () => import('../app/components/HashConnectButton'),
+  { ssr: false }
+);
+
 
 const Header = () => {
   const pathname = usePathname();
@@ -50,9 +57,7 @@ const Header = () => {
 
           {/* User Actions - Desktop Only */}
           <div className="">
-            <button className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-[#243C4C] hover:opacity-70 hover:cursor-pointer focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors">
-              Connect Wallet
-            </button>
+            <HashConnectButton />
           </div>
 
         

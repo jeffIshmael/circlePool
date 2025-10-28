@@ -41,3 +41,13 @@ yarn-error.log*
 next-env.d.ts
 
 /hederaairbnb
+
+/frontend/node_modules
+/frontend/.next
+/frontend/out
+/frontend/build
+/frontend/coverage
+/frontend/dist
+/frontend/build
+/frontend/coverage
+/frontend/dist

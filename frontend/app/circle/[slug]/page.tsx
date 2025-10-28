@@ -3,11 +3,17 @@ import Header from "@/components/Header";
 import LoanRequestModal from "@/components/LoanRequestModal";
 import Link from "next/link";
 import { ArrowLeft, Users, Calendar, DollarSign, TrendingUp, Clock, Percent, Share2 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
-export default function CircleDetail({ params }: { params: { slug: string } }) {
+export default function CircleDetail({ params }: { params: Promise<{ slug: string }> }) {
   const [showLoanModal, setShowLoanModal] = useState(false);
   const [showNotification, setShowNotification] = useState(false);
+  const [slug, setSlug] = useState('');
+
+  // Await params in useEffect for client component
+  useEffect(() => {
+    params.then(p => setSlug(p.slug));
+  }, [params]);
 
   // Mock data - replace with actual data fetching based on slug
   const circle = {
