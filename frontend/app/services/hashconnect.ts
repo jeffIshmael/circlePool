@@ -9,7 +9,7 @@ const appMetadata = {
     name: "CirclePool",
     description: "CirclePool - Hedera Hashgraph DApp",
     icons: [typeof window !== 'undefined' ? window.location.origin + "/favicon.ico" : "/favicon.ico"],
-    url:  "http://localhost:3000",
+    url:  "https://circle-pool.vercel.app/",
 };
 
 export const hc = new HashConnect(
