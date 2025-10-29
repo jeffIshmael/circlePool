@@ -1,0 +1,127 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            Int            @id @default(autoincrement())
+  email         String?        
+  userName      String?         
+  address       String         @unique
+  createdCircles Circle[]        @relation("AdminCircles")
+  circles        CircleMember[]
+  joinRequests  CircleRequest[]
+  notifications Notification[]
+  payments      Payment[]
+  loanRequests  LoanRequest[]
+  payOuts       PayOut[]
+}
+
+model Circle {
+  id            Int           @id @default(autoincrement())
+  name          String       
+  slug          String        @unique
+  startDate     DateTime
+  payDate       DateTime
+  cycleTime     Int
+  started       Boolean       @default(false)
+  amount        String
+  leftPercent   Int           @default(10)
+  interestPercent Int           @default(5)
+  loanableAmount  String        @default("0")
+  round         Int          @default(1) //  payout
+  cycle         Int          @default(1) // after every member has received a payout
+  maxNo         Int           @default(15)
+  blockchainId  String
+  adminId       Int
+  canJoin       Boolean  @default(true)
+  payOutOrder   String?  // Json string of payout order array.
+  createdAt     DateTime      @default(now())
+  admin         User          @relation("AdminCircles", fields: [adminId], references: [id])
+  loanRequests  LoanRequest[]
+  members       CircleMember[]
+  requests      CircleRequest[]
+  notifications Notification[]
+  payments      Payment[]
+  payOuts       PayOut[]
+}
+
+model CircleMember {
+  id      Int   @id @default(autoincrement())
+  userId  Int
+  circleId Int
+  circle   Circle @relation(fields: [circleId], references: [id])
+  user    User  @relation(fields: [userId], references: [id])
+  payDate         DateTime // To track the payment rotation date
+}
+
+model Payment {
+  id      Int      @id @default(autoincrement())
+  amount  String
+  description String?
+  doneAt  DateTime @default(now())
+  txHash  String
+  userId  Int
+  circleId Int
+  circle   Circle    @relation(fields: [circleId], references: [id])
+  user    User     @relation(fields: [userId], references: [id])
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  message   String
+  senderId  Int?
+  requestId Int?
+  userId    Int
+  circleId   Int?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  circle     Circle?   @relation(fields: [circleId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model LoanRequest {
+  id Int @id @default(autoincrement())
+  amount String
+  interestRate Int
+  duration Int
+  startDate DateTime
+  endDate DateTime
+  status String @default("pending")
+  createdAt DateTime @default(now())
+  userId Int
+  circleId Int
+  user User @relation(fields: [userId], references: [id])
+  circle Circle @relation(fields: [circleId], references: [id])
+}
+
+model CircleRequest {
+  id        Int      @id @default(autoincrement())
+  status    String   @default("pending")
+  createdAt DateTime @default(now())
+  userId    Int
+  circleId   Int
+  circle     Circle    @relation(fields: [circleId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+
+model PayOut {
+  id Int @id @default(autoincrement())
+  amount  BigInt
+  doneAt  DateTime @default(now())
+  txHash  String?
+  receiver String
+  userId  Int
+  circleId Int
+  circle   Circle    @relation(fields: [circleId], references: [id])
+  user    User     @relation(fields: [userId], references: [id])
+}
