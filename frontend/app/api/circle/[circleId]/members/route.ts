@@ -11,10 +11,13 @@ import { ContractCallQuery, ContractFunctionParameters, Hbar, ContractId } from 
 import { getHederaClient } from "@/app/lib/hederaClient";
 import { validateApiKey, unauthorizedResponse } from "@/app/lib/apiAuth";
 import { CONTRACT_ID } from "@/app/lib/constants";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { circleId: string } }
+  { params }: { params: Promise<{ circleId: string }> }
 ) {
   try {
     // Validate API key
@@ -22,62 +25,65 @@ export async function GET(
       return unauthorizedResponse();
     }
 
-    const circleId = parseInt(params.circleId);
-    if (isNaN(circleId)) {
+    const { circleId: rawCircleId } = await params;
+    const circleIdNum = Number.parseInt(String(rawCircleId), 10);
+    if (Number.isNaN(circleIdNum)) {
       return NextResponse.json(
         { error: "Invalid circle ID" },
         { status: 400 }
       );
     }
 
+    // Fetch members from Prisma by blockchainId (string match)
+    const prismaCircle = await prisma.circle.findFirst({
+      where: { blockchainId: String(circleIdNum) },
+      include: {
+        members: {
+          include: {
+            user: {
+              select: { address: true },
+            },
+          },
+        },
+      },
+    });
+
+    const addresses: string[] = Array.isArray(prismaCircle?.members)
+      ? prismaCircle!.members
+          .map((m) => m.user?.address)
+          .filter((a): a is string => typeof a === "string" && a.length > 0)
+      : [];
+
     const client = getHederaClient();
 
-    // Query getEachMemberBalance function
-    const query = new ContractCallQuery()
-      .setContractId(ContractId.fromString(CONTRACT_ID))
-      .setGas(200000)
-      .setFunction(
-        "getEachMemberBalance",
-        new ContractFunctionParameters().addUint256(circleId)
-      )
-      .setQueryPayment(new Hbar(0.1));
-
-    const result = await query.execute(client);
-
-    // Parse results: returns (address[] members, uint[][] balances)
-    // Each balance array has 2 elements: [balance, loan]
-    // Note: Array parsing may need adjustment based on actual SDK behavior
-    
-    const members: Array<{
-      address: string;
-      balance: number;
-      loan: number;
-    }> = [];
-
-    try {
-      // The exact indexing depends on how Hedera SDK returns dynamic arrays
-      // We'll need to test and adjust this parsing
-      // For now, try reading sequentially
-      let index = 0;
-      while (true) {
+    // For each address, query getBalance(circleId, address)
+    const members = await Promise.all(
+      addresses.map(async (address) => {
         try {
-          const address = result.getAddress(index);
-          const balance = result.getUint256(index + 1).toNumber();
-          const loan = result.getUint256(index + 2).toNumber();
-          
-          members.push({ address, balance, loan });
-          index += 3;
+          const query = new ContractCallQuery()
+            .setContractId(ContractId.fromString(CONTRACT_ID))
+            .setGas(100000)
+            .setFunction(
+              "getBalance",
+              new ContractFunctionParameters()
+                .addUint256(circleIdNum)
+                .addAddress(address)
+            )
+            .setQueryPayment(new Hbar(0.1));
+
+          const result = await query.execute(client);
+          const balance = result.getUint256(0).toNumber();
+          const loan = result.getUint256(1).toNumber();
+          return { address, balance, loan };
         } catch (e) {
-          break;
+          // On failure, return zeros for this member to keep the list stable
+          return { address, balance: 0, loan: 0 };
         }
-      }
-    } catch (error) {
-      console.error("Error parsing members array:", error);
-      // Return empty array if parsing fails
-    }
+      })
+    );
 
     return NextResponse.json({
-      circleId,
+      circleId: circleIdNum,
       members,
       total: members.length,
     });

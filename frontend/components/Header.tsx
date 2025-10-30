@@ -1,9 +1,11 @@
 "use client";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
 import dynamic from 'next/dynamic';
+import { getHbarBalance } from "@/app/services/circleService";
+import { useHashConnect } from "@/app/hooks/useHashConnect";
 
 const HashConnectButton = dynamic(
   () => import('../app/components/HashConnectButton'),
@@ -14,6 +16,28 @@ const HashConnectButton = dynamic(
 const Header = () => {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { isConnected, accountId } = useHashConnect();
+  const [balance, setBalance] = useState<{ tinybars: number; hbar: number }>({ tinybars: 0, hbar: 0 });
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!accountId) {
+        setBalance({ tinybars: 0, hbar: 0 });
+        return;
+      }
+      try {
+        const b = await getHbarBalance(accountId);
+        if (!cancelled) setBalance(b);
+      } catch {
+        if (!cancelled) setBalance({ tinybars: 0, hbar: 0 });
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId]);
 
   const navLinks = [
     { href: "/create", label: "Create Circle" },
@@ -21,6 +45,10 @@ const Header = () => {
     { href: "/my-loans", label: "My Loans" },
     { href: "/profile", label: "Profile" },
   ];
+
+  const truncateAccount = (id: string) =>
+    id.length > 15 ? id.slice(0, 10) + "..." + id.slice(-5) : id;
+
 
   return (
     <header className="w-full">
@@ -36,6 +64,7 @@ const Header = () => {
           </div>
 
           {/* Navigation - Desktop Only */}
+          {isConnected && (
           <nav className="hidden lg:flex lg:space-x-6">
             {navLinks.map((link) => {
               const isActive = pathname === link.href;
@@ -53,11 +82,11 @@ const Header = () => {
                 </Link>
               );
             })}
-          </nav>
+          </nav>)}
 
           {/* User Actions - Desktop Only */}
           <div className="">
-            <HashConnectButton />
+            <HashConnectButton hbarBalance={balance.hbar} />
           </div>
 
         

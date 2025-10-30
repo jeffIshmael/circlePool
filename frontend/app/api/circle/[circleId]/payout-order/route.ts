@@ -14,7 +14,7 @@ import { CONTRACT_ID } from "@/app/lib/constants";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { circleId: string } }
+  { params }: { params: Promise<{ circleId: string }> }
 ) {
   try {
     // Validate API key
@@ -22,8 +22,11 @@ export async function GET(
       return unauthorizedResponse();
     }
 
-    const circleId = parseInt(params.circleId);
-    if (isNaN(circleId)) {
+    const { circleId: rawCircleId } = await params;
+    console.log("rawCircleId",rawCircleId);
+    const circleId = Number.parseInt(String(rawCircleId), 10);
+    console.log("circleId",circleId);
+    if (Number.isNaN(circleId)) {
       return NextResponse.json(
         { error: "Invalid circle ID" },
         { status: 400 }

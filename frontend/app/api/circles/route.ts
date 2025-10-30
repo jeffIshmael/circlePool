@@ -30,6 +30,8 @@ export async function GET(request: NextRequest) {
 
     const result = await query.execute(client);
 
+    console.log("api circles result",result);
+
     // Parse results according to contract return type:
     // (uint[] circleIds, uint[] amounts, uint[] startDates, uint[] durations, uint[] loanableAmounts, address[] admins)
     // Note: Hedera SDK may return arrays differently - this parsing may need adjustment

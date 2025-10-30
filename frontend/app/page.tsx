@@ -5,7 +5,7 @@ import Image from "next/image";
 import dynamic from "next/dynamic";
 
 const HashConnectButton = dynamic(() => import("./components/HashConnectButton"), { ssr: false });
-const CircleDemo = dynamic(() => import("./components/CircleDemo"), { ssr: false });
+
 
 export default function Home() {
   return (
@@ -141,10 +141,9 @@ export default function Home() {
                     </div>
                   </div>
                   <div className="w-full flex items-center justify-between gap-3">
-                    <button className="flex-1 flex items-center justify-center px-4 py-3 border border-primary-gray text-primary-blue rounded-lg transition-all font-medium hover:bg-primary-light">
+                    <button className="flex-1 flex items-center justify-center px-4 py-3 border border-primary-gray text-primary-blue rounded-lg transition-all font-medium hover:cursor-not-allowed">
                       View Circle Details <ArrowUpRight className="w-4 h-4 ml-2" />
                     </button>
-                    <CircleDemo />
                   </div>
                 </div>
               </div>

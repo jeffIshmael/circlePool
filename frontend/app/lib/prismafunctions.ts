@@ -1,4 +1,5 @@
 // this file contains the functions for the prisma client
+"use server";
 
 import { PrismaClient } from "@prisma/client";
 
@@ -8,11 +9,13 @@ export const getCircles = async () => {
   const circles = await prisma.circle.findMany({
     include: {
       members: {
-        user: {
-          select: {
-            id: true,
-            userName: true,
-            address: true,
+        include: {
+          user: {
+            select: {
+              id: true,
+              userName: true,
+              address: true,
+            },
           },
         },
       },
@@ -27,11 +30,13 @@ export const getCircleBySlug = async (slug: string) => {
     where: { slug },
     include: {
       members: {
-        user: {
-          select: {
-            id: true,
-            userName: true,
-            address: true,
+        include: {
+          user: {
+            select: {
+              id: true,
+              userName: true,
+              address: true,
+            },
           },
         },
       },
@@ -121,7 +126,7 @@ export const getUserByAddress = async (address: string) => {
 // register circle
 export const registerCircle = async (
   name: string,
-  slug: string,
+  blockchainId: string,
   startDate: number,
   payDate: number,
   cycleTime: number,
@@ -131,6 +136,7 @@ export const registerCircle = async (
   adminAddress: string
 ) => {
   try {
+    const slug = name.toLowerCase().replace(/ /g, "-");
     const existingCircle = await prisma.circle.findUnique({
       where: {
         slug,
@@ -153,6 +159,7 @@ export const registerCircle = async (
         amount: amount.toString(),
         leftPercent,
         interestPercent,
+        blockchainId,
         admin: { connect: { id: admin.id } },
       },
     });
@@ -187,6 +194,7 @@ export const addMemberToCircle = async (
       data: {
         userId: user.id,
         circleId,
+        payDate: new Date(),
       },
     });
     return member;
@@ -195,5 +203,52 @@ export const addMemberToCircle = async (
     throw error;
   }
 };
+
+// function to check if a circle's slug exists
+export const checkSlugExists = async (name: string) => {
+  const slug = name.toLowerCase().replace(/ /g, "-");
+  const circle = await prisma.circle.findUnique({
+    where: {
+      slug,
+    },
+  });  
+  return circle ? true : false;
+};
+
+// check if user is registered
+export const checkUserRegistered = async ( address: string) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: {
+        address,
+      },
+    });
+    return user ? true : false;
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+};
+
+// check if user is a member of a circle
+const checkUserIsMemberOfCircle = async (userAddress: string, slug: string) => {
+  const user = await getUserByAddress(userAddress);
+  if (!user) {
+    throw new Error("User not found");
+  }
+  const circle = await getCircleBySlug(slug);
+  if (!circle) {
+    throw new Error("Circle not found");
+  }
+  const member = await prisma.circleMember.findFirst({
+    where: {
+      userId: user.id,
+      circleId: circle.id,
+    },
+  });
+  return member ? true : false;
+};
+
+
 
 

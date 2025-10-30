@@ -12,7 +12,7 @@ import { NextRequest } from "next/server";
  * Set API_KEY environment variable to protect your endpoints
  */
 export function validateApiKey(request: NextRequest): boolean {
-  const apiKey = process.env.API_KEY;
+  const apiKey = process.env.NEXT_PUBLIC_API_KEY;
 
   // If no API_KEY is set, allow all requests (development mode)
   if (!apiKey) {
