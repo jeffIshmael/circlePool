@@ -6,6 +6,7 @@ import { Menu, X } from "lucide-react";
 import dynamic from 'next/dynamic';
 import { getHbarBalance } from "@/app/services/circleService";
 import { useHashConnect } from "@/app/hooks/useHashConnect";
+import Image from "next/image";
 
 const HashConnectButton = dynamic(
   () => import('../app/components/HashConnectButton'),
@@ -55,7 +56,9 @@ const Header = () => {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           {/* Logo */}
-          <div className="flex-shrink-0">
+          
+          <div className="flex-shrink-0 flex items-center gap-2">
+          <Image src="/images/circleLogo.png" alt="CirclePool" width={32} height={32} className="rounded-full" />
             <Link href="/">
               <h1 className="text-xl md:text-2xl font-bold text-primary-dark cursor-pointer">
                 CirclePool
