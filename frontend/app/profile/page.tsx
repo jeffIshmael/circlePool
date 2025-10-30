@@ -2,113 +2,158 @@
 import Header from "@/components/Header";
 import Link from "next/link";
 import { ArrowLeft, Bell, User, Settings, DollarSign, Users, CheckCircle, Clock, XCircle } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useHashConnect } from "@/app/hooks/useHashConnect";
+import { getUsersNotificationsAndRequests, getUsersLoanRequests, getUserByAddress, updateUserName } from "@/app/lib/prismafunctions";
+import { toast } from "sonner";
+
 
 export default function Profile() {
   const [activeTab, setActiveTab] = useState<'notifications' | 'profile' | 'settings' | 'loan-requests'>('notifications');
+  const { accountId } = useHashConnect();
+  const [loading, setLoading] = useState(true);
+  const [simpleNotifications, setSimpleNotifications] = useState<any[]>([]);
+  const [actionableJoinRequests, setActionableJoinRequests] = useState<any[]>([]);
+  const [actionableLoanRequests, setActionableLoanRequests] = useState<any[]>([]);
+  const [userProfile, setUserProfile] = useState<any | null>(null);
+  const [userLoanRequests, setUserLoanRequests] = useState<Array<{
+    id: number;
+    circleName?: string;
+    amount: string;
+    interestRate: string;
+    submittedDate: string;
+    paybackDate: string;
+    duration: string;
+    status: string;
+    estimatedTotal: string;
+  }>>([]);
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
+  const hasChanges = (editName !== (userProfile?.userName || "")) || (editEmail !== (userProfile?.email || ""));
 
-  // Mock notifications data
-  const notifications = [
-    {
-      id: 1,
-      type: 'loan_approved',
-      title: 'Loan Approved!',
-      message: 'Your loan request of 500 HBAR has been approved',
-      time: '2 hours ago',
-      read: false,
-      circle: 'Family Savings Circle',
-    },
-    {
-      id: 2,
-      type: 'payout_received',
-      title: 'Payout Received',
-      message: 'You received 2,400 HBAR from Family Savings Circle',
-      time: '1 day ago',
-      read: false,
-    },
-    {
-      id: 3,
-      type: 'loan_request',
-      title: 'New Loan Request',
-      message: 'John D. requested a loan of 300 HBAR from Family Savings Circle',
-      time: '2 days ago',
-      read: true,
-      requiresAction: true,
-    },
-    {
-      id: 4,
-      type: 'contribution_due',
-      title: 'Contribution Due',
-      message: 'Your monthly contribution of 400 HBAR is due in 3 days',
-      time: '3 days ago',
-      read: true,
-    },
-  ];
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!accountId) {
+        setSimpleNotifications([]);
+        setActionableJoinRequests([]);
+        setActionableLoanRequests([]);
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      try {
+        const data = await getUsersNotificationsAndRequests(accountId);
+        // notifications: plain list
+        if (!cancelled) setSimpleNotifications(data.notifications || []);
+        // join requests requiring action (admin of circles)
+        if (!cancelled) setActionableJoinRequests(data.joinRequests || []);
+        // loan requests to circles the user admins (pending only)
+        const pendingLoans = Array.isArray(data.circleLoanRequests)
+          ? data.circleLoanRequests.filter((r: any) => r.status === 'pending')
+          : [];
+        if (!cancelled) setActionableLoanRequests(pendingLoans);
 
-  // Mock loan requests data
-  const loanRequests = [
-    {
-      id: 1,
-      circleName: "Family Savings Circle",
-      amount: "500 HBAR",
-      interestRate: "5%",
-      submittedDate: "Nov 20, 2024",
-      paybackDate: "Jan 20, 2025",
-      duration: "2 months",
-      status: "pending",
-      estimatedTotal: "550 HBAR",
-    },
-    {
-      id: 2,
-      circleName: "Friends Investment Group",
-      amount: "300 HBAR",
-      interestRate: "5%",
-      submittedDate: "Nov 15, 2024",
-      paybackDate: "Dec 15, 2024",
-      duration: "1 month",
-      status: "approved",
-      estimatedTotal: "315 HBAR",
-    },
-    {
-      id: 3,
-      circleName: "Neighborhood Fund",
-      amount: "1000 HBAR",
-      interestRate: "5%",
-      submittedDate: "Nov 10, 2024",
-      paybackDate: "Feb 10, 2025",
-      duration: "3 months",
-      status: "rejected",
-      estimatedTotal: "1150 HBAR",
-    },
-  ];
+        // load user profile
+        const user = await getUserByAddress(accountId);
+        if (!cancelled) setUserProfile(user || null);
+
+        // load user's own loan requests for the My Loan Requests tab
+        const myLoans: any[] = await getUsersLoanRequests(accountId);
+        const mapped = myLoans.map((lr) => {
+          const amountNum = Number(lr.amount || 0);
+          const rate = Number(lr.interestRate || 0);
+          const months = Number(lr.duration || 0);
+          const start = lr.startDate ? new Date(lr.startDate) : new Date();
+          const due = new Date(start);
+          due.setMonth(due.getMonth() + (Number.isFinite(months) ? months : 0));
+          const totalDueNum = amountNum * (1 + (rate / 100) * months);
+          const fmt = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+          return {
+            id: lr.id,
+            circleName: lr.circle?.name,
+            amount: `${amountNum} HBAR`,
+            interestRate: `${rate}%`,
+            submittedDate: fmt(start),
+            paybackDate: fmt(due),
+            duration: `${months} month${months === 1 ? '' : 's'}`,
+            status: lr.status || 'pending',
+            estimatedTotal: `${totalDueNum.toFixed(2)} HBAR`,
+          };
+        });
+        if (!cancelled) setUserLoanRequests(mapped);
+      } catch {
+        if (!cancelled) {
+          setSimpleNotifications([]);
+          setActionableJoinRequests([]);
+          setActionableLoanRequests([]);
+          setUserProfile(null);
+          setUserLoanRequests([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [accountId]);
+
+  // Sync editable fields when profile loads
+  useEffect(() => {
+    setEditName(userProfile?.userName || "");
+    setEditEmail(userProfile?.email || "");
+  }, [userProfile]);
+
+  const handleSaveProfile = async () => {
+    if (!accountId) {
+      toast.error("Connect wallet first");
+      return;
+    }
+    try {
+      setSavingProfile(true);
+      await updateUserName(accountId, editName || null, editEmail || null);
+      const refreshed = await getUserByAddress(accountId);
+      setUserProfile(refreshed || null);
+      toast.success("Profile updated");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to update profile");
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+
 
   return (
     <div className="min-h-screen bg-primary-light">
       <Header />
       
       {/* Hero Section */}
-      <section className="bg-primary-light py-12">
+      <section className="bg-primary-light ">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           {/* Desktop Back Link */}
-          <Link href="/" className="hidden md:inline-flex items-center text-primary-blue hover:underline mb-6">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to home
-          </Link>
-          
-          <div className="hidden md:inline-flex items-center gap-4 md:gap-6 mb-8">
-            <div className="w-16 h-16 md:w-20 md:h-20 bg-primary-blue rounded-full flex items-center justify-center text-white text-xl md:text-2xl font-bold">
-              JD
-            </div>
-            <div>
-              <h1 className="text-2xl md:text-4xl font-bold text-primary-dark mb-2">
-                Your Profile
-              </h1>
-              <p className="text-sm md:text-base text-primary-slate">Manage your account and view notifications</p>
+          <div className="flex flex-col">
+            <Link href="/" className="hidden md:inline-flex items-center text-primary-blue hover:underline mb-4">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to home
+            </Link>
+            
+            <div className="hidden md:inline-flex items-center gap-4 md:gap-6 mb-8">
+              <div className="w-16 h-16 md:w-20 md:h-20 bg-primary-blue rounded-full flex items-center justify-center text-white text-xl md:text-2xl font-bold">
+                JD
+              </div>
+              <div>
+                <h1 className="text-2xl md:text-4xl font-bold text-primary-dark mb-2">
+                  Your Profile
+                </h1>
+                <p className="text-sm md:text-base text-primary-slate">Manage your account and view notifications</p>
+              </div>
             </div>
           </div>
 
           {/* Desktop Tabs */}
-          <div className="hidden md:flex gap-2 border-b border-primary-lavender">
+          <div className="hidden md:flex gap-2 border-b border-primary-lavender mb-6">
             <button
               onClick={() => setActiveTab('notifications')}
               className={`px-6 py-3 font-semibold transition-colors ${
@@ -117,7 +162,7 @@ export default function Profile() {
                   : 'text-primary-slate hover:text-primary-dark'
               }`}
             >
-              Notifications ({notifications.filter(n => !n.read).length})
+              Notifications ({simpleNotifications.filter((n: any) => !n.read).length})
             </button>
             <button
               onClick={() => setActiveTab('loan-requests')}
@@ -156,19 +201,20 @@ export default function Profile() {
       </section>
 
       {/* Content */}
-      <section className="py-8 md:py-12">
+      <section className="py-8 ">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 space-y-6 md:space-y-0">
           {/* Mobile View - Show all sections stacked */}
           <div className="md:hidden">
-            {/* Profile Section */}
+            {/* Profile Section */
+            }
             <div className="bg-white rounded-2xl shadow-lg p-6 mb-4">
               <h2 className="text-xl font-bold text-primary-dark mb-4">Profile Information</h2>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-semibold text-primary-dark mb-2">Wallet Address</label>
+                  <label className="block text-sm font-semibold text-primary-dark mb-2">Account ID</label>
                   <input
                     type="text"
-                    value="0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"
+                    value={accountId || ""}
                     readOnly
                     className="w-full px-4 py-3 bg-primary-light border border-primary-lavender rounded-lg text-xs"
                   />
@@ -177,7 +223,8 @@ export default function Profile() {
                   <label className="block text-sm font-semibold text-primary-dark mb-2">Display Name</label>
                   <input
                     type="text"
-                    defaultValue="John Doe"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
                     className="w-full px-4 py-3 border border-primary-lavender rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-blue"
                   />
                 </div>
@@ -185,10 +232,14 @@ export default function Profile() {
                   <label className="block text-sm font-semibold text-primary-dark mb-2">Email</label>
                   <input
                     type="email"
-                    defaultValue="john.doe@example.com"
+                    value={editEmail}
+                    onChange={(e) => setEditEmail(e.target.value)}
                     className="w-full px-4 py-3 border border-primary-lavender rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-blue"
                   />
                 </div>
+                <button onClick={handleSaveProfile} disabled={savingProfile || !hasChanges} className={`px-4 py-3 rounded-lg font-semibold ${savingProfile || !hasChanges ? "bg-gray-300 text-gray-600" : "bg-primary-blue text-white hover:bg-opacity-90"}`}>
+                  {savingProfile ? "Saving..." : "Save Changes"}
+                </button>
               </div>
             </div>
 
@@ -196,7 +247,7 @@ export default function Profile() {
             <div className="mb-4">
               <h2 className="text-xl font-bold text-primary-dark mb-4">Notifications</h2>
               <div className="space-y-3">
-                {notifications.map((notification) => (
+                {simpleNotifications.map((notification: any) => (
                   <div
                     key={notification.id}
                     className={`bg-white rounded-xl shadow-lg p-4 border-l-4 ${
@@ -241,51 +292,111 @@ export default function Profile() {
 
           {/* Desktop View - Tabbed */}
           {activeTab === 'notifications' && (
-            <div className="space-y-4">
-              {notifications.map((notification) => (
-                <div
-                  key={notification.id}
-                  className={`bg-white rounded-xl shadow-lg p-6 border-l-4 ${
-                    notification.read
-                      ? 'border-gray-300'
-                      : 'border-primary-blue'
-                  }`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-start gap-4 flex-1">
-                      <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                        notification.type === 'loan_approved' ? 'bg-green-100 text-green-600' :
-                        notification.type === 'payout_received' ? 'bg-blue-100 text-blue-600' :
-                        notification.type === 'loan_request' ? 'bg-yellow-100 text-yellow-600' :
-                        'bg-primary-light text-primary-blue'
-                      }`}>
-                        {notification.type === 'loan_approved' && <CheckCircle className="w-6 h-6" />}
-                        {notification.type === 'payout_received' && <DollarSign className="w-6 h-6" />}
-                        {notification.type === 'loan_request' && <Users className="w-6 h-6" />}
-                        {notification.type === 'contribution_due' && <Clock className="w-6 h-6" />}
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h3 className="font-bold text-primary-dark">{notification.title}</h3>
-                          {!notification.read && (
-                            <span className="w-2 h-2 bg-primary-blue rounded-full"></span>
-                          )}
+            <div className="space-y-6">
+              {/* Action Required */}
+              <div>
+                <h3 className="text-lg font-semibold text-primary-dark mb-3">Action required</h3>
+                {loading && (
+                  <div className="text-primary-slate text-sm">Loading…</div>
+                )}
+                {!loading && actionableJoinRequests.length === 0 && actionableLoanRequests.length === 0 && (
+                  <div className="text-primary-slate text-sm">No pending actions.</div>
+                )}
+
+                <div className="space-y-4">
+                  {actionableJoinRequests.map((req) => (
+                    <div key={`join-${req.id}`} className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-yellow-500">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-start gap-4 flex-1">
+                          <div className="w-12 h-12 rounded-full bg-yellow-100 text-yellow-700 flex items-center justify-center">
+                            <Users className="w-6 h-6" />
+                          </div>
+                          <div className="flex-1">
+                            <h4 className="font-bold text-primary-dark mb-1">Join Request</h4>
+                            <p className="text-primary-slate text-sm">A user requested to join your circle (ID {req.circleId}).</p>
+                          </div>
                         </div>
-                        <p className="text-primary-slate mb-2">{notification.message}</p>
-                        {notification.circle && (
-                          <p className="text-xs text-primary-blue">From: {notification.circle}</p>
-                        )}
-                        <p className="text-xs text-primary-slate">{notification.time}</p>
+                        <div className="flex gap-2">
+                          <button onClick={() => toast.success("Approved")} className="px-3 py-2 bg-green-600 text-white rounded-lg text-sm">Approve</button>
+                          <button onClick={() => toast.error("Rejected")} className="px-3 py-2 bg-red-600 text-white rounded-lg text-sm">Reject</button>
+                        </div>
                       </div>
                     </div>
-                    {notification.requiresAction && (
-                      <button className="px-4 py-2 bg-primary-blue text-white rounded-lg hover:bg-opacity-90 transition-all text-sm font-semibold">
-                        Review
-                      </button>
-                    )}
-                  </div>
+                  ))}
+
+                  {actionableLoanRequests.map((lr) => (
+                    <div key={`loan-${lr.id}`} className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-yellow-500">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-start gap-4 flex-1">
+                          <div className="w-12 h-12 rounded-full bg-yellow-100 text-yellow-700 flex items-center justify-center">
+                            <DollarSign className="w-6 h-6" />
+                          </div>
+                          <div className="flex-1">
+                            <h4 className="font-bold text-primary-dark mb-1">Loan Request</h4>
+                            <p className="text-primary-slate text-sm">{lr.user?.userName || lr.user?.address} requested a loan of {lr.amount} HBAR in {lr.circle?.name || `Circle #${lr.circleId}`}.</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => toast.success("Approved")} className="px-3 py-2 bg-green-600 text-white rounded-lg text-sm">Approve</button>
+                          <button onClick={() => toast.error("Rejected")} className="px-3 py-2 bg-red-600 text-white rounded-lg text-sm">Reject</button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
+
+              {/* Other notifications */}
+              <div>
+                <h3 className="text-lg font-semibold text-primary-dark mb-3">Updates</h3>
+                {loading && (
+                  <div className="text-primary-slate text-sm">Loading…</div>
+                )}
+                {!loading && simpleNotifications.length === 0 && (
+                  <div className="text-primary-slate text-sm">No notifications.</div>
+                )}
+                <div className="space-y-4">
+                  {simpleNotifications.map((notification: any) => (
+                    <div
+                      key={notification.id}
+                      className={`bg-white rounded-xl shadow-lg p-6 border-l-4 ${
+                        notification.read ? 'border-gray-300' : 'border-primary-blue'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-start gap-4 flex-1">
+                          <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                            notification.type === 'loan_approved' ? 'bg-green-100 text-green-600' :
+                            notification.type === 'payout_received' ? 'bg-blue-100 text-blue-600' :
+                            notification.type === 'loan_request' ? 'bg-yellow-100 text-yellow-600' :
+                            'bg-primary-light text-primary-blue'
+                          }`}>
+                            {notification.type === 'loan_approved' && <CheckCircle className="w-6 h-6" />}
+                            {notification.type === 'payout_received' && <DollarSign className="w-6 h-6" />}
+                            {notification.type === 'loan_request' && <Users className="w-6 h-6" />}
+                            {notification.type === 'contribution_due' && <Clock className="w-6 h-6" />}
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h3 className="font-bold text-primary-dark">{notification.title || 'Notification'}</h3>
+                              {!notification.read && (
+                                <span className="w-2 h-2 bg-primary-blue rounded-full"></span>
+                              )}
+                            </div>
+                            <p className="text-primary-slate mb-2">{notification.message}</p>
+                            {notification.circle && (
+                              <p className="text-xs text-primary-blue">From: {notification.circle}</p>
+                            )}
+                            {notification.createdAt && (
+                              <p className="text-xs text-primary-slate">{new Date(notification.createdAt).toLocaleString()}</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
@@ -294,10 +405,10 @@ export default function Profile() {
               <h2 className="text-2xl font-bold text-primary-dark mb-6">Profile Information</h2>
               <div className="space-y-6">
                 <div>
-                  <label className="block text-sm font-semibold text-primary-dark mb-2">Wallet Address</label>
+                  <label className="block text-sm font-semibold text-primary-dark mb-2">Account ID</label>
                   <input
                     type="text"
-                    value="0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"
+                    value={accountId || ""}
                     readOnly
                     className="w-full px-4 py-3 bg-primary-light border border-primary-lavender rounded-lg text-sm"
                   />
@@ -307,7 +418,8 @@ export default function Profile() {
                     <label className="block text-sm font-semibold text-primary-dark mb-2">Display Name</label>
                     <input
                       type="text"
-                      defaultValue="John Doe"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
                       className="w-full px-4 py-3 border border-primary-lavender rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-blue"
                     />
                   </div>
@@ -315,13 +427,14 @@ export default function Profile() {
                     <label className="block text-sm font-semibold text-primary-dark mb-2">Email</label>
                     <input
                       type="email"
-                      defaultValue="john.doe@example.com"
+                      value={editEmail}
+                      onChange={(e) => setEditEmail(e.target.value)}
                       className="w-full px-4 py-3 border border-primary-lavender rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-blue"
                     />
                   </div>
                 </div>
-                <button className="px-6 py-3 bg-primary-blue text-white rounded-lg hover:bg-opacity-90 transition-all font-semibold">
-                  Save Changes
+                <button onClick={handleSaveProfile} disabled={savingProfile || !hasChanges} className={`px-6 py-3 rounded-lg transition-all font-semibold ${savingProfile || !hasChanges ? "bg-gray-300 text-gray-600" : "bg-primary-blue text-white hover:bg-opacity-90"}`}>
+                  {savingProfile ? "Saving..." : "Save Changes"}
                 </button>
               </div>
             </div>
@@ -333,7 +446,7 @@ export default function Profile() {
                 <h2 className="text-2xl font-bold text-primary-dark mb-2">My Loan Requests</h2>
                 <p className="text-primary-slate">Track your loan applications across all circles</p>
               </div>
-              {loanRequests.map((request) => (
+              {userLoanRequests.map((request: any) => (
                 <div
                   key={request.id}
                   className={`bg-white rounded-xl shadow-lg p-6 border-l-4 ${

@@ -8,9 +8,11 @@ import {
   Calendar,
   DollarSign,
   TrendingUp,
+  Link as LinkIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useHashConnect } from "@/app/hooks/useHashConnect";
 import {
   getCircleById,
@@ -39,6 +41,10 @@ export default function MyCircles() {
   const [loading, setLoading] = useState(true);
   const [circles, setCircles] = useState<UiCircle[]>([]);
   const { accountId } = useHashConnect();
+  const router = useRouter();
+  const [showJoinModal, setShowJoinModal] = useState(false);
+  const [joinLink, setJoinLink] = useState("");
+  const [joinError, setJoinError] = useState("");
 
   const handleRequestLoanClick = (circle: any) => {
     setSelectedCircle(circle);
@@ -122,6 +128,85 @@ export default function MyCircles() {
   return (
     <div className="min-h-screen bg-primary-light">
       <Header />
+      {showJoinModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setShowJoinModal(false)}
+          />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <h3 className="text-xl font-semibold text-primary-dark mb-3">
+              Join a Circle
+            </h3>
+            <p className="text-sm text-primary-slate mb-4">
+              Paste a circle link to continue.
+            </p>
+            <input
+              type="text"
+              value={joinLink}
+              onChange={(e) => {
+                setJoinLink(e.target.value);
+                setJoinError("");
+              }}
+              placeholder="https://circle-pool.vercel.app/..."
+              className="w-full px-4 py-3 border border-primary-lavender rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-blue mb-2"
+            />
+            {joinError && (
+              <p className="text-xs text-red-600 mb-2">{joinError}</p>
+            )}
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setShowJoinModal(false)}
+                className="px-4 py-2 border rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  try {
+                    const raw = joinLink.trim();
+                    if (!raw) return;
+                    const url = new URL(raw);
+                    const validHost = url.host === "circle-pool.vercel.app";
+                    const validPath = /^\/circle\/[a-z0-9-]+$/i.test(
+                      url.pathname
+                    );
+                    if (!validHost || !validPath) {
+                      setJoinError("Invalid link.");
+                      return;
+                    }
+                    router.push(url.pathname);
+                    setShowJoinModal(false);
+                  } catch {
+                    setJoinError("Invalid link.");
+                  }
+                }}
+                disabled={!joinLink.trim()}
+                className={`px-4 py-2 rounded-lg ${
+                  !joinLink.trim()
+                    ? "bg-gray-300 text-gray-600 cursor-not-allowed"
+                    : "bg-primary-blue text-white hover:bg-opacity-90"
+                }`}
+              >
+                Check out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showLoanModal && selectedCircle && (
+        <LoanRequestModal
+          isOpen={showLoanModal}
+          onClose={() => {
+            setShowLoanModal(false);
+            setSelectedCircle(null);
+          }}
+          circleName={selectedCircle.name}
+          interestRate={`${selectedCircle.interestPercent}%`}
+          availableAmount={selectedCircle.loanableAmount}
+          onSuccess={handleLoanSuccess}
+        />
+      )}
 
       {/* Notification Banner */}
       {showNotification && (
@@ -139,19 +224,6 @@ export default function MyCircles() {
       )}
 
       {/* Loan Request Modal */}
-      {showLoanModal && selectedCircle && (
-        <LoanRequestModal
-          isOpen={showLoanModal}
-          onClose={() => {
-            setShowLoanModal(false);
-            setSelectedCircle(null);
-          }}
-          circleName={selectedCircle.name}
-          interestRate="5%"
-          availableAmount={selectedCircle.poolBalance}
-          onSuccess={handleLoanSuccess}
-        />
-      )}
 
       {/* Hero Section */}
       <section className="bg-primary-light py-12">
@@ -172,9 +244,35 @@ export default function MyCircles() {
                 Manage and track your savings circles
               </p>
             </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowJoinModal(true)}
+                className="flex items-center px-6 py-3 bg-primary-lavender text-primary-dark border border-primary-blue rounded-lg hover:opacity-80 hover:cursor-pointer transition-all font-semibold"
+              >
+                Join a Circle
+                <LinkIcon className="w-4 h-4 ml-2" />
+              </button>
+              <Link
+                href="/create"
+                className="flex items-center px-6 py-3 bg-primary-blue text-white rounded-lg hover:bg-opacity-90 transition-all font-semibold"
+              >
+                Create New Circle <Plus className="w-4 h-4 ml-2" />
+              </Link>
+            </div>
+          </div>
+        </div>
+        {/* Mobile: show only Create button */}
+        <div className="md:hidden mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between">
+            <button
+              onClick={() => setShowJoinModal(true)}
+              className="px-4 py-3 bg-primary-lavender text-primary-dark rounded-lg font-semibold"
+            >
+              Join Circle
+            </button>
             <Link
               href="/create"
-              className="hidden md:inline-flex items-center px-6 py-3 bg-primary-blue text-white rounded-lg hover:bg-opacity-90 transition-all font-semibold"
+              className="flex items-center px-6 py-3 bg-primary-blue text-white rounded-lg hover:bg-opacity-90 transition-all font-semibold"
             >
               Create New Circle <Plus className="w-4 h-4 ml-2" />
             </Link>
@@ -183,7 +281,7 @@ export default function MyCircles() {
       </section>
 
       {/* Circles Grid */}
-      <section className="py-12">
+      <section className="">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {loading && (
@@ -269,35 +367,19 @@ export default function MyCircles() {
                   <div className="flex gap-3 px-6 pb-6 pt-2 border-t border-gray-100">
                     <Link
                       href={`/circle/${circle.slug}`}
-                      className="flex-1 px-4 py-2 bg-primary-blue text-white text-center rounded-lg font-medium hover:bg-opacity-90 transition"
+                      className="flex-1 px-4 py-2 bg-primary-blue text-white text-center rounded-lg font-medium hover:opacity-90 hover:cursor-pointer transition"
                     >
                       View Details
                     </Link>
                     <button
                       onClick={() => handleRequestLoanClick(circle)}
-                      className="flex-1 px-4 py-2 bg-primary-lavender text-primary-dark text-center rounded-lg font-medium hover:bg-opacity-80 transition"
+                      className="flex-1 px-4 py-2 bg-primary-lavender text-primary-dark text-center rounded-lg font-medium hover:opacity-80 hover:cursor-pointer transition"
                     >
                       Request Loan
                     </button>
                   </div>
                 </div>
               ))}
-
-            {/* Create New Circle Card */}
-            <Link
-              href="/create"
-              className="bg-white rounded-2xl border-2 border-dashed border-primary-lavender hover:border-primary-blue hover:shadow-lg transition-all flex flex-col items-center justify-center min-h-[300px] text-center group"
-            >
-              <div className="w-16 h-16 bg-primary-light rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition">
-                <Plus className="w-8 h-8 text-primary-blue" />
-              </div>
-              <h3 className="text-xl font-bold text-primary-dark mb-1 group-hover:text-primary-blue">
-                Create New Circle
-              </h3>
-              <p className="text-primary-slate text-sm">
-                Start a new savings group with your friends.
-              </p>
-            </Link>
           </div>
         </div>
       </section>

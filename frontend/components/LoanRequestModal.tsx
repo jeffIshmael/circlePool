@@ -64,9 +64,17 @@ export default function LoanRequestModal({
     onClose();
   };
 
+  const availableAmountNumber = (() => {
+    const num = parseFloat(availableAmount.replace(' HBAR', '').replace(/,/g, ''));
+    return isNaN(num) ? 0 : num;
+  })();
+
+  // Seed the input with available amount when modal opens or available amount changes
+  useEffect(() => {
+    setLoanAmount(availableAmountNumber > 0 ? String(availableAmountNumber) : "");
+  }, [availableAmountNumber]);
+
   if (!isOpen) return null;
-  
-  const availableAmountNumber = parseInt(availableAmount.replace(' HBAR', '').replace(',', ''));
   
   const periods = [1, 2, 3];
 
@@ -93,15 +101,31 @@ export default function LoanRequestModal({
             <input
               type="number"
               value={loanAmount}
-              onChange={(e) => setLoanAmount(e.target.value)}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const val = Number(raw);
+                if (Number.isNaN(val)) {
+                  setLoanAmount("");
+                  return;
+                }
+                if (val < 1) {
+                  setLoanAmount("1");
+                  return;
+                }
+                if (val > availableAmountNumber) {
+                  setLoanAmount(String(availableAmountNumber));
+                  return;
+                }
+                setLoanAmount(raw);
+              }}
               placeholder="e.g., 500"
-              min="1"
+              min={1}
               max={availableAmountNumber}
               className="w-full px-4 py-3 border border-primary-lavender rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-blue"
               required
             />
             <p className="text-xs text-primary-slate mt-1">
-              Available: {availableAmount}
+              Available: {availableAmount} • Max you can request: {availableAmountNumber} HBAR
             </p>
           </div>
 
@@ -166,7 +190,16 @@ export default function LoanRequestModal({
             </button>
             <button
               type="submit"
-              className="flex-1 px-4 py-3 bg-primary-blue text-white rounded-lg hover:bg-opacity-90 transition-all font-semibold"
+              disabled={
+                !loanAmount ||
+                Number(loanAmount) < 1 ||
+                Number(loanAmount) > availableAmountNumber
+              }
+              className={`flex-1 px-4 py-3 rounded-lg transition-all font-semibold ${
+                !loanAmount || Number(loanAmount) < 1 || Number(loanAmount) > availableAmountNumber
+                  ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                  : 'bg-primary-blue text-white hover:bg-opacity-90'
+              }`}
             >
               Request Loan
             </button>

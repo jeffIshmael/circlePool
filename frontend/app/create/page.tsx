@@ -157,7 +157,7 @@ export default function CreateCircle() {
       <Header />
 
       {/* Hero Section */}
-      <section className="bg-primary-light py-12">
+      <section className="bg-primary-light ">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
           <Link
             href="/"

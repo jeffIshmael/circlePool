@@ -101,24 +101,24 @@ export const getUserByAddress = async (address: string) => {
     where: {
       address,
     },
-    include:{
-        loanRequests:{
-            select:{
-                id: true,
-                amount: true,
-                interestRate: true,
-                duration: true,
-                startDate: true,
-            },
+    include: {
+      loanRequests: {
+        select: {
+          id: true,
+          amount: true,
+          interestRate: true,
+          duration: true,
+          startDate: true,
         },
-        notifications:{
-            select:{
-                id: true,
-                message: true,
-                createdAt: true,
-            },
+      },
+      notifications: {
+        select: {
+          id: true,
+          message: true,
+          createdAt: true,
         },
-    }
+      },
+    },
   });
   return user;
 };
@@ -211,12 +211,12 @@ export const checkSlugExists = async (name: string) => {
     where: {
       slug,
     },
-  });  
+  });
   return circle ? true : false;
 };
 
 // check if user is registered
-export const checkUserRegistered = async ( address: string) => {
+export const checkUserRegistered = async (address: string) => {
   try {
     const user = await prisma.user.findUnique({
       where: {
@@ -231,7 +231,10 @@ export const checkUserRegistered = async ( address: string) => {
 };
 
 // check if user is a member of a circle
-const checkUserIsMemberOfCircle = async (userAddress: string, slug: string) => {
+export const checkUserIsMemberOfCircle = async (
+  userAddress: string,
+  slug: string
+) => {
   const user = await getUserByAddress(userAddress);
   if (!user) {
     throw new Error("User not found");
@@ -248,7 +251,170 @@ const checkUserIsMemberOfCircle = async (userAddress: string, slug: string) => {
   });
   return member ? true : false;
 };
+// function to check if a user has a pending join request to a circle
+export const checkUserHasPendingJoinRequestToCircle = async (
+  userAddress: string,
+  circleId: number
+) => {
+  const user = await getUserByAddress(userAddress);
+  if (!user) {
+    throw new Error("User not found");
+  }
+  const request = await prisma.circleRequest.findFirst({
+    where: { userId: user.id, circleId: circleId, status: "pending" },
+  });
+  return request ? true : false;
+};
 
+// function to send request to join a circle
+export const sendRequestToJoinCircle = async (
+  userAddress: string,
+  circleId: number
+) => {
+  try {
+    const user = await getUserByAddress(userAddress);
+    if (!user) {
+      throw new Error("User not found");
+    }
+    const hasPendingRequest = await checkUserHasPendingJoinRequestToCircle(
+      userAddress,
+      circleId
+    );
+    if (hasPendingRequest) {
+      throw new Error("You already have a pending join request to this circle");
+    }
+    const request = await prisma.circleRequest.create({
+      data: {
+        userId: user.id,
+        circleId: circleId,
+      },
+    });
+    return request;
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+};
 
+// get circleIDs that user is admin of
+export const getCircleIDsThatUserIsAdminOf = async (userAddress: string) => {
+  try {
+    const user = await getUserByAddress(userAddress);
+    if (!user) {
+      throw new Error("User not found");
+    }
+    const circleIds = await prisma.circle.findMany({
+      where: {
+        adminId: user.id,
+      },
+      select: {
+        id: true,
+      },
+    });
+    return circleIds;
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+};
 
+// get users notifications & requests
+export const getUsersNotificationsAndRequests = async (userAddress: string) => {
+  try {
+    const user = await getUserByAddress(userAddress);
+    if (!user) {
+      throw new Error("User not found");
+    }
+    const circleIds = await getCircleIDsThatUserIsAdminOf(userAddress);
+    const notifications = await prisma.notification.findMany({
+      where: {
+        userId: user.id,
+      },
+    });
+    // get join requests for circles that user is admin of
+    const joinRequests = await prisma.circleRequest.findMany({
+      where: {
+        circleId: { in: circleIds.map((circle) => circle.id) },
+      },
+    });
+    // circles loan requests : need to be approved by everyone
+    const circleLoanRequests = await prisma.loanRequest.findMany({
+      where: {
+        circleId: { in: circleIds.map((circle) => circle.id) },
+        userId: { not: user.id }, // exclude loan requests created by the current user
+      },
+      include: {
+        circle: {
+          select: {
+            name: true,
+            id: true,
+          },
+        },
+        user: {
+          select: {
+            userName: true,
+            address: true,
+          },
+        },
+      },
+      
+    });
+    return { notifications, joinRequests, circleLoanRequests };
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+};
 
+// get users approved loans
+export const getUsersApprovedLoans = async (userAddress: string) => {
+  try {
+    const user = await getUserByAddress(userAddress);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    const loans = await prisma.loanRequest.findMany({
+      where: { userId: user.id, status: "approved" },
+    });
+    return loans;
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+};
+
+// get users loan requests
+export const getUsersLoanRequests = async (userAddress: string) => {
+  try {
+    const user = await getUserByAddress(userAddress);
+    if (!user) {
+      throw new Error("User not found");
+    }
+    const loanRequests = await prisma.loanRequest.findMany({
+      where: { userId: user.id },
+    });
+    return loanRequests;
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+};
+
+// update user name
+export const updateUserName = async (userAddress: string, userName: string | null, email: string | null) => {
+  try {
+    const user = await getUserByAddress(userAddress);
+    if (!user) {
+      throw new Error("User not found");
+    }
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { userName, email },
+    });
+    return user;
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+};

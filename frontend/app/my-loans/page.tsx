@@ -2,24 +2,71 @@
 import Header from "@/components/Header";
 import { ArrowLeft, DollarSign, Calendar, TrendingUp, Plus } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useHashConnect } from "@/app/hooks/useHashConnect";
+import { getUsersApprovedLoans } from "@/app/lib/prismafunctions";
 
 export default function MyLoans() {
-  const [requestLoanOpen, setRequestLoanOpen] = useState(false);
+  const { accountId } = useHashConnect();
+  const [loading, setLoading] = useState(true);
+  const [activeLoans, setActiveLoans] = useState<
+    Array<{
+      id: number;
+      circle?: string;
+      amount: string;
+      borrowedDate: string;
+      dueDate: string;
+      interestRate: string;
+      totalDue: string;
+      daysRemaining: number;
+    }>
+  >([]);
 
-  // Mock data - replace with actual data
-  const activeLoans = [
-    {
-      id: 1,
-      circle: "Family Savings Circle",
-      amount: "500 HBAR",
-      borrowedDate: "Nov 15, 2024",
-      dueDate: "Jan 15, 2025",
-      interestRate: "5%",
-      totalDue: "600 HBAR",
-      daysRemaining: 45,
-    },
-  ];
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!accountId) {
+        setActiveLoans([]);
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      try {
+        const loans: any[] = await getUsersApprovedLoans(accountId);
+        const mapped = loans.map((loan) => {
+          const amountNum = Number(loan.amount || 0);
+          const rate = Number(loan.interestRate || 0) / 100;
+          const months = Number(loan.duration || 0);
+          const start = loan.startDate ? new Date(loan.startDate) : new Date();
+          const due = new Date(start);
+          due.setMonth(due.getMonth() + (Number.isFinite(months) ? months : 0));
+          const totalDueNum = amountNum * (1 + rate * months);
+          const now = new Date();
+          const daysRemaining = Math.max(0, Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+          const fmt = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+          return {
+            id: loan.id,
+            circle: loan.circle?.name, // optional if relation exists
+            amount: `${amountNum} HBAR`,
+            borrowedDate: fmt(start),
+            dueDate: fmt(due),
+            interestRate: `${Number(loan.interestRate || 0)}%`,
+            totalDue: `${totalDueNum.toFixed(2)} HBAR`,
+            daysRemaining,
+          };
+        });
+        if (!cancelled) setActiveLoans(mapped);
+      } catch {
+        if (!cancelled) setActiveLoans([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId]);
 
   return (
     <div className="min-h-screen bg-primary-light">
@@ -41,69 +88,17 @@ export default function MyLoans() {
                 Manage your loans from your circles
               </p>
             </div>
-            <button
-              onClick={() => setRequestLoanOpen(!requestLoanOpen)}
-              className="hidden md:inline-flex items-center px-6 py-3 bg-primary-blue text-white rounded-lg hover:bg-opacity-90 transition-all font-semibold gap-2"
-            >
-              <Plus className="w-5 h-5" />
-              Request Loan
-            </button>
           </div>
         </div>
       </section>
 
-      {/* Request Loan Modal */}
-      {requestLoanOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8">
-            <h2 className="text-2xl font-bold text-primary-dark mb-6">
-              Request a Loan
-            </h2>
-            <form className="space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-primary-dark mb-2">
-                  Select Circle
-                </label>
-                <select className="w-full px-4 py-3 border border-primary-lavender rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-blue">
-                  <option>Family Savings Circle</option>
-                  <option>Friends Investment Group</option>
-                  <option>Neighborhood Fund</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-primary-dark mb-2">
-                  Loan Amount (HBAR)
-                </label>
-                <input
-                  type="number"
-                  placeholder="e.g., 500"
-                  className="w-full px-4 py-3 border border-primary-lavender rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-blue"
-                />
-              </div>
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setRequestLoanOpen(false)}
-                  className="flex-1 px-4 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-all font-semibold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 px-4 py-3 bg-primary-blue text-white rounded-lg hover:bg-opacity-90 transition-all font-semibold"
-                >
-                  Submit Request
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* Active Loans */}
-      <section className="py-12">
+      <section className="">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          {activeLoans.length > 0 ? (
+          {loading ? (
+            <div className="text-center text-primary-slate">Loading loans…</div>
+          ) : activeLoans.length > 0 ? (
             <div className="space-y-6">
               {activeLoans.map((loan) => (
                 <div
@@ -114,7 +109,7 @@ export default function MyLoans() {
                   <div className="flex items-start justify-between mb-6">
                     <div>
                       <h3 className="text-2xl font-bold text-primary-dark mb-2">
-                        {loan.circle}
+                        {loan.circle || "Approved Loan"}
                       </h3>
                       <div className="flex items-center gap-4 text-sm text-primary-slate">
                         <div className="flex items-center gap-2">
@@ -195,13 +190,6 @@ export default function MyLoans() {
               <p className="text-primary-slate mb-6">
                 You don't have any active loans at the moment
               </p>
-              <button
-                onClick={() => setRequestLoanOpen(true)}
-                className="inline-flex items-center px-6 py-3 bg-primary-blue text-white rounded-lg hover:bg-opacity-90 transition-all font-semibold gap-2"
-              >
-                <Plus className="w-5 h-5" />
-                Request a Loan
-              </button>
             </div>
           )}
         </div>

@@ -9,6 +9,7 @@ import {
   DollarSign,
   CircleDollarSign,
   Percent,
+  CalendarClock,
   Share2,
   Clock,
 } from "lucide-react";
@@ -18,7 +19,7 @@ import {
   getCircleById,
   getMembersOnchainWithBalances,
 } from "@/app/services/circleService";
-import { getCircleBySlug } from "@/app/lib/prismafunctions";
+import { getCircleBySlug, checkUserIsMemberOfCircle, sendRequestToJoinCircle, checkUserHasPendingJoinRequestToCircle } from "@/app/lib/prismafunctions";
 import { useHashConnect } from "@/app/hooks/useHashConnect";
 import { toast } from "sonner";
 
@@ -35,8 +36,11 @@ export default function CircleDetail({
   const { accountId } = useHashConnect();
   const [loading, setLoading] = useState(true);
   const [circle, setCircle] = useState({
+    id: 0,
     name: "",
     members: 0,
+    amount: "0",
+    duration: 0,
     retainedPercent: 0,
     interestRate: 0,
     startDate: "",
@@ -56,6 +60,9 @@ export default function CircleDetail({
       loan: string;
     }>
   >([]);
+  const [isMember, setIsMember] = useState(false);
+  const [pendingRequest, setPendingRequest] = useState(false);
+  const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
     params.then((p) => setSlug(p.slug));
@@ -68,9 +75,25 @@ export default function CircleDetail({
       setLoading(true);
       try {
         const prismaCircle: any = await getCircleBySlug(slug);
-        if (!prismaCircle) throw new Error("Circle not found");
+        if (!prismaCircle) {
+          setNotFound(true);
+          return;
+        }
         const chainCircleId = Number(prismaCircle.blockchainId);
         const onChain = await getCircleById(chainCircleId);
+        // check membership (only if wallet connected)
+        if (accountId) {
+          try {
+            const mem = await checkUserIsMemberOfCircle(accountId, prismaCircle.slug);
+            if(!mem) {
+              const hasPendingRequest = await checkUserHasPendingJoinRequestToCircle(accountId, prismaCircle.id);
+              setPendingRequest(hasPendingRequest);         
+            }
+            if (!cancelled) setIsMember(!!mem);
+          } catch {}
+        } else {
+          setIsMember(false);
+        }
         const membersOnChain = await getMembersOnchainWithBalances(
           chainCircleId
         );
@@ -115,11 +138,15 @@ export default function CircleDetail({
         const dateLabel = `${day} ${month} ${year}, ${hours}${minutes}`;
         const loanableHbar =
           ((onChain.loanableAmount || 0) / 100_000_000).toFixed(2) + " HBAR";
+        const amountHbar = (Number(prismaCircle.amount || 0)) + " HBAR";
 
         if (!cancelled) {
           setCircle({
+            id: prismaCircle.id,
             name: prismaCircle.name,
             members: membersCount,
+            amount: amountHbar,
+            duration: prismaCircle.cycleTime,
             retainedPercent: Number(prismaCircle.leftPercent || 0),
             interestRate: Number(prismaCircle.interestPercent || 0),
             startDate: dateLabel,
@@ -132,7 +159,10 @@ export default function CircleDetail({
           setMembers(memberList);
         }
       } catch {
-        if (!cancelled) setMembers([]);
+        if (!cancelled) {
+          setMembers([]);
+          setNotFound(true);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -158,6 +188,38 @@ export default function CircleDetail({
       toast.error("Failed to copy to clipboard");
     }
   };
+
+  const handleRequestToJoin = async () => {
+    try {
+      if (!accountId) {
+        toast.error("Please connect your wallet to send a join request");
+        return;
+      }
+      await sendRequestToJoinCircle(accountId, circle.id);
+      toast.success("Join request sent. Awaiting approval from the circle admin.");
+    } catch {
+      toast.error("Failed to send join request");
+    }
+  };
+
+  if (notFound) {
+    return (
+      <div className="min-h-screen bg-primary-light">
+        <Header />
+        <section className="pt-24 md:pt-16 pb-8">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="bg-white rounded-3xl shadow-xl p-6 md:p-8 border border-primary-lavender/40 text-center">
+              <h1 className="text-2xl md:text-3xl font-bold text-primary-dark mb-2">Circle not found</h1>
+              <p className="text-primary-slate">The circle you are looking for does not exist or was removed.</p>
+              <div className="mt-6">
+                <Link href="/my-circles" className="px-4 py-2 bg-primary-blue text-white rounded-lg">Back to My Circles</Link>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-primary-light">
@@ -214,7 +276,7 @@ export default function CircleDetail({
             <div className="flex flex-wrap justify-between items-start gap-4">
               <div>
                 <h1 className="text-3xl md:text-4xl font-bold text-primary-dark flex items-center gap-3">
-                  {circle.name || (loading ? "Loading…" : "Circle")}
+                  {circle.name}
                   {circle.started ? (
                     <span className="px-2 py-1 text-sm bg-green-100 text-green-700 rounded-full flex items-center gap-1">
                       🟢 Active
@@ -225,6 +287,13 @@ export default function CircleDetail({
                     </span>
                   )}
                 </h1>
+                <div className="flex items-center gap-2 text-bold mt-4 text-primary-slate" style={{ fontSize: "12px" }}>
+                  <CalendarClock className="w-4 h-4 text-primary-blue" />
+                  <span className="text-bold">
+                    {circle.amount}/{circle.duration} days
+                  </span>
+
+                </div>
                 <div className="flex items-center gap-4 mt-2 text-sm text-primary-slate">
                   <span className="flex items-center gap-2">
                     <Users className="w-4 h-4 text-primary-blue" />{" "}
@@ -232,8 +301,8 @@ export default function CircleDetail({
                   </span>
                   <span className="flex items-center gap-2">
                     <Percent className="w-4 h-4 text-primary-blue" />{" "}
-                    {circle.retainedPercent}% Retained • {circle.interestRate}%
-                    Interest
+                    {circle.retainedPercent}% Retained for every payout • {circle.interestRate}%
+                    Interest on loans
                   </span>
                 </div>
               </div>
@@ -244,6 +313,8 @@ export default function CircleDetail({
                   onClick={async () => {
                     await copyShare();
                     toast.success("Copied to clipboard");
+                    setShowShare(true);
+                    setTimeout(() => setShowShare(false), 1500);
                   }}
                   aria-label="copy link"
                   className="px-4 py-2 bg-primary-blue text-white hover:cursor-pointer rounded-xl font-semibold hover:bg-primary-blue/80 transition-all flex items-center gap-2"
@@ -252,7 +323,7 @@ export default function CircleDetail({
                   Share
                 </button>
                 {/* Tooltip */}
-                <div className="pointer-events-none absolute right-0 top-full mt-2 hidden group-hover:block z-40">
+                <div className={`pointer-events-none absolute right-0 top-full mt-2 z-40 text-center ${showShare ? "block" : "hidden"} group-hover:block`}>
                   <div className="rounded-md bg-black/80 text-white text-xs px-2 py-1 shadow-md whitespace-nowrap">
                     Copy link to share
                   </div>
@@ -269,15 +340,20 @@ export default function CircleDetail({
                 value: circle.nextPayoutAmount,
                 icon: <CircleDollarSign className="w-4 h-4" />,
               },
-              {
-                label: "Loan Limit",
-                value: circle.loanableAmount,
-                icon: <DollarSign className="w-4 h-4" />,
-                sub: circle.started
-                  ? "Available for loans"
-                  : "Loans unavailable until start",
-                button: true,
-              },
+              // show loan limit only for members
+              ...(isMember
+                ? [
+                    {
+                      label: "Loan Limit",
+                      value: circle.loanableAmount,
+                      icon: <DollarSign className="w-4 h-4" />,
+                      sub: circle.started
+                        ? "Available for loans"
+                        : "Loans unavailable until start",
+                      button: true,
+                    } as const,
+                  ]
+                : []),
               {
                 label: circle.started ? "Next Pay Date" : "Start Date",
                 value: circle.nextPayoutDate,
@@ -319,71 +395,105 @@ export default function CircleDetail({
                 )}
               </motion.div>
             ))}
+            {!isMember && (
+              <div className="bg-white rounded-2xl border border-primary-lavender/40 p-6 shadow-md flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-semibold text-primary-blue uppercase tracking-wide mb-2">Membership</div>
+                  <div className="text-primary-dark font-semibold">You are not a member of this circle</div>
+                  <div className="text-sm text-primary-slate">Request access to view loan limits and member balances.</div>
+                </div>
+                <button
+                  onClick={() => handleRequestToJoin()}
+                  className="px-4 py-2 bg-primary-blue text-white rounded-lg font-semibold hover:bg-opacity-90"
+                >
+                  {pendingRequest ? "Request Sent" : "Request to Join"}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </section>
 
       {/* Members Table */}
-      <section className="py-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 className="text-2xl font-bold text-primary-dark mb-6">
-            Members & Balances
-          </h2>
+      {isMember ? (
+        <section className="py-12">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h2 className="text-2xl font-bold text-primary-dark mb-6">
+              Members & Balances
+            </h2>
 
-          {!circle.started && (
-            <div className="mb-4 bg-yellow-50 border border-yellow-200 text-yellow-800 p-3 rounded-lg text-sm flex items-center gap-2">
-              <Clock className="w-4 h-4" />
-              This circle has not started yet. Balances will update once it
-              begins.
-            </div>
-          )}
+            {!circle.started && (
+              <div className="mb-4 bg-yellow-50 border border-yellow-200 text-yellow-800 p-3 rounded-lg text-sm flex items-center gap-2">
+                <Clock className="w-4 h-4" />
+                This circle has not started yet. Balances & payout order will update once it
+                begins.
+              </div>
+            )}
 
-          <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-primary-lavender">
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
-                <thead className="bg-primary-lavender sticky top-0">
-                  <tr>
-                    {["#", "Member", "Status", "Balance", "Loan"].map((col) => (
-                      <th
-                        key={col}
-                        className="px-6 py-4 text-left text-sm font-semibold text-primary-dark"
-                      >
-                        {col}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-primary-lavender">
-                  {members.map((m) => (
-                    <tr
-                      key={m.address}
-                      className="hover:bg-primary-light/50 transition"
-                    >
-                      <td className="px-6 py-4 text-sm">{m.position}</td>
-                      <td className="px-6 py-4 font-mono text-xs break-all">
-                        {m.label}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span
-                          className={`px-2 py-1 rounded text-xs font-semibold ${
-                            m.status === "Active"
-                              ? "bg-green-100 text-green-700"
-                              : "bg-yellow-100 text-yellow-700"
-                          }`}
+            <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-primary-lavender">
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse">
+                  <thead className="bg-primary-lavender sticky top-0">
+                    <tr>
+                      {["#", "Member", "Status", "Balance", "Loan"].map((col) => (
+                        <th
+                          key={col}
+                          className="px-6 py-4 text-left text-sm font-semibold text-primary-dark"
                         >
-                          {m.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm">{m.balance}</td>
-                      <td className="px-6 py-4 text-sm">{m.loan}</td>
+                          {col}
+                        </th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-primary-lavender">
+                    {members.map((m) => (
+                      <tr
+                        key={m.address}
+                        className="hover:bg-primary-light/50 transition"
+                      >
+                        <td className="px-6 py-4 text-sm">{m.position}</td>
+                        <td className="px-6 py-4 font-mono text-xs break-all">
+                          {m.label}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span
+                            className={`px-2 py-1 rounded text-xs font-semibold ${
+                              m.status === "Active"
+                                ? "bg-green-100 text-green-700"
+                                : "bg-yellow-100 text-yellow-700"
+                            }`}
+                          >
+                            {m.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm">{m.balance}</td>
+                        <td className="px-6 py-4 text-sm">{m.loan}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      ) : (
+        <section className="py-12">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="bg-white rounded-2xl border border-primary-lavender/40 p-8 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-semibold text-primary-dark mb-1">Members & Balances</h3>
+                <p className="text-sm text-primary-slate">Only members can view member list and balances.</p>
+              </div>
+              <button
+                onClick={() => toast.info("Join request sent")}
+                className="px-4 py-2 bg-primary-blue text-white rounded-lg font-semibold hover:bg-opacity-90"
+              >
+                Request to Join
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
