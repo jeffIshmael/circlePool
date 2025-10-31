@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use client";
 
 import { HashConnect } from "hashconnect";
@@ -8,6 +7,8 @@ import {
   ContractFunctionParameters,
   Hbar,
   LedgerId,
+  TransactionReceipt,
+  Client,
 } from "@hashgraph/sdk";
 
 const env = "testnet";
@@ -25,11 +26,10 @@ const appMetadata = {
 
 export const hc = new HashConnect(
   LedgerId.fromString(env),
-  "bfa190dbe93fcf30377b932b31129d05", // Use a unique project ID
+  "bfa190dbe93fcf30377b932b31129d05",
   appMetadata,
   true
 );
-
 
 export const hcInitPromise = hc.init();
 
@@ -75,10 +75,9 @@ export const signTransaction = async (
     throw new Error(`Account ${accountIdForSigning} is not paired`);
   }
 
-  const result = await instance.signTransaction(
-    AccountId.fromString(accountIdForSigning) as any,
-    transaction
-  );
+  // FIX: Cast string to AccountId properly
+  const accountId = AccountId.fromString(accountIdForSigning);
+  const result = await instance.signTransaction(accountId as any, transaction);
   return result;
 };
 
@@ -101,10 +100,9 @@ export const executeTransaction = async (
     throw new Error(`Account ${accountIdForSigning} is not paired`);
   }
 
-  const result = await instance.sendTransaction(
-    AccountId.fromString(accountIdForSigning) as any,
-    transaction
-  );
+  // FIX: Cast string to AccountId properly
+  const accountId = AccountId.fromString(accountIdForSigning);
+  const result = await instance.sendTransaction(accountId as any, transaction);
   return result;
 };
 
@@ -127,11 +125,28 @@ export const signMessages = async (
     throw new Error(`Account ${accountIdForSigning} is not paired`);
   }
 
-  const result = await instance.signMessages(
-    AccountId.fromString(accountIdForSigning) as any,
-    message
-  );
+  // FIX: Cast string to AccountId properly
+  const accountId = AccountId.fromString(accountIdForSigning);
+  const result = await instance.signMessages(accountId as any, message);
   return result;
+};
+
+// Helper function to safely get error message
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    return String(error.message);
+  }
+  return String(error);
+};
+
+// Helper function to safely get error stack
+const getErrorStack = (error: unknown): string | undefined => {
+  if (error instanceof Error) return error.stack;
+  if (typeof error === 'object' && error !== null && 'stack' in error) {
+    return String(error.stack);
+  }
+  return undefined;
 };
 
 export const executeContractFunction = async (
@@ -157,22 +172,19 @@ export const executeContractFunction = async (
   }
 
   try {
-    // Try different approaches to get the signer
     let signer;
 
-
+    // FIX: Type-safe signer access
     if (typeof instance.getSigner === "function") {
       try {
-
-        signer = instance.getSigner(accountIdForSigning);
-       
-      } catch (err) {
+        signer = instance.getSigner(accountIdForSigning as any);
+      } catch (err: unknown) {
         console.error("🚨 DIAGNOSTIC: Direct getSigner failed:", err);
         console.error(
           "🚨 DIAGNOSTIC: getSigner error type:",
           err?.constructor?.name
         );
-        console.error("🚨 DIAGNOSTIC: getSigner error message:", err?.message);
+        console.error("🚨 DIAGNOSTIC: getSigner error message:", getErrorMessage(err));
       }
     } else {
       console.log(
@@ -183,20 +195,20 @@ export const executeContractFunction = async (
     // Approach 2: Try with provider if direct signer failed
     if (!signer) {
       try {
-
-        // Try to find topic from various possible locations
+        // FIX: Type-safe property access
+        const instanceAny = instance as any;
         const possibleTopics = [
-          instance.hcData?.topic,
-          instance.topic,
-          instance.connectionData?.topic,
+          instanceAny.hcData?.topic,
+          instanceAny.topic,
+          instanceAny.connectionData?.topic,
           Object.keys(instance.connectedAccountIds || {})[0],
         ];
 
         const topic = possibleTopics.find((t) => t && typeof t === "string");
 
         if (topic) {
-          if (typeof instance.getProvider === "function") {
-            const provider = instance.getProvider(
+          if (typeof instanceAny.getProvider === "function") {
+            const provider = instanceAny.getProvider(
               "testnet",
               topic,
               accountIdForSigning
@@ -215,13 +227,13 @@ export const executeContractFunction = async (
             "🚨 DIAGNOSTIC: No topic available for provider approach"
           );
         }
-      } catch (err) {
+      } catch (err: unknown) {
         console.error("🚨 DIAGNOSTIC: Provider approach failed:", err);
         console.error(
           "🚨 DIAGNOSTIC: Provider error type:",
           err?.constructor?.name
         );
-        console.error("🚨 DIAGNOSTIC: Provider error message:", err?.message);
+        console.error("🚨 DIAGNOSTIC: Provider error message:", getErrorMessage(err));
       }
     }
 
@@ -234,8 +246,6 @@ export const executeContractFunction = async (
     // Build the contract parameters based on function name
     let contractParams = new ContractFunctionParameters();
 
-    // console.log('🔍 DIAGNOSTIC: Function parameters received:', JSON.stringify(functionParameters, null, 2));
-
     if (functionName === "registerCircle") {
       try {
         contractParams
@@ -245,7 +255,7 @@ export const executeContractFunction = async (
           .addUint256(Number(functionParameters.maxMembers))
           .addUint256(Number(functionParameters.interestPercent))
           .addUint256(Number(functionParameters.leftPercent));
-      } catch (paramError) {
+      } catch (paramError: unknown) {
         console.error(
           "🚨 DIAGNOSTIC: Error adding registerCircle parameters:",
           paramError
@@ -254,10 +264,8 @@ export const executeContractFunction = async (
       }
     } else if (functionName === "depositCash") {
       try {
-        // depositCash(uint _circleId) - only takes circleId as parameter
-        // The amount is sent via msg.value (setPayableAmount)
         contractParams.addUint256(Number(functionParameters.circleId));
-      } catch (paramError) {
+      } catch (paramError: unknown) {
         console.error(
           "🚨 DIAGNOSTIC: Error adding depositCash parameters:",
           paramError
@@ -282,16 +290,13 @@ export const executeContractFunction = async (
       throw new Error(`Unknown function name: ${functionName}`);
     }
 
-
     let transaction;
     try {
-      // Create the transaction step by step to ensure proper construction
       transaction = new ContractExecuteTransaction();
       transaction = transaction.setContractId(contractId);
       transaction = transaction.setGas(gas);
       transaction = transaction.setFunction(functionName, contractParams);
 
-      // Adding payable amount for depositCash function
       if (functionName === "depositCash") {
         transaction = transaction.setPayableAmount(
           new Hbar(Number(functionParameters.amount) / 100000000)
@@ -299,40 +304,36 @@ export const executeContractFunction = async (
       }
 
       transaction = transaction.setMaxTransactionFee(new Hbar(2));
-    } catch (constructionError) {
+    } catch (constructionError: unknown) {
       console.error(
         "🚨 DIAGNOSTIC: Error during transaction construction:",
         constructionError
       );
       console.error(
         "🚨 DIAGNOSTIC: Construction error stack:",
-        constructionError.stack
+        getErrorStack(constructionError)
       );
       throw new Error(
-        `Transaction construction failed: ${constructionError.message}`
+        `Transaction construction failed: ${getErrorMessage(constructionError)}`
       );
     }
 
     let frozenTransaction;
     try {
-      // Check if signer has the methods we need
       if (signer) {
         const signerMethods = Object.getOwnPropertyNames(
           Object.getPrototypeOf(signer)
         );
-
-        // Also check for methods directly on the object
         const signerOwnMethods = Object.getOwnPropertyNames(signer);
       }
 
-      // Check if the transaction has freezeWithSigner method
       if (typeof transaction.freezeWithSigner !== "function") {
         throw new Error("Transaction does not have freezeWithSigner method");
       }
 
-      // Freeze the transaction with signer
-      frozenTransaction = await transaction.freezeWithSigner(signer);
-    } catch (freezeError) {
+      // FIX: Use 'as any' to handle version mismatch between hashconnect and @hashgraph/sdk
+      frozenTransaction = await transaction.freezeWithSigner(signer as any);
+    } catch (freezeError: unknown) {
       console.error(
         "🚨 DIAGNOSTIC: Error during transaction freezing:",
         freezeError
@@ -343,25 +344,23 @@ export const executeContractFunction = async (
       );
       console.error(
         "🚨 DIAGNOSTIC: Freeze error message:",
-        freezeError?.message
+        getErrorMessage(freezeError)
       );
-      console.error("🚨 DIAGNOSTIC: Freeze error stack:", freezeError?.stack);
-      throw new Error(`Transaction freezing failed: ${freezeError.message}`);
+      console.error("🚨 DIAGNOSTIC: Freeze error stack:", getErrorStack(freezeError));
+      throw new Error(`Transaction freezing failed: ${getErrorMessage(freezeError)}`);
     }
 
     let response;
     try {
-      // Check if frozen transaction has executeWithSigner method
-
       if (typeof frozenTransaction.executeWithSigner !== "function") {
         throw new Error(
           "Frozen transaction does not have executeWithSigner method"
         );
       }
 
-      // Execute with signer (this will prompt wallet for signature)
-      response = await frozenTransaction.executeWithSigner(signer);
-    } catch (executionError) {
+      // FIX: Use 'as any' for version compatibility
+      response = await frozenTransaction.executeWithSigner(signer as any);
+    } catch (executionError: unknown) {
       console.error(
         "🚨 DIAGNOSTIC: Error during transaction execution:",
         executionError
@@ -372,17 +371,15 @@ export const executeContractFunction = async (
       );
       console.error(
         "🚨 DIAGNOSTIC: Execution error message:",
-        executionError?.message
+        getErrorMessage(executionError)
       );
       console.error(
         "🚨 DIAGNOSTIC: Execution error stack:",
-        executionError?.stack
+        getErrorStack(executionError)
       );
 
-      // Check for specific error patterns
-      if (
-        executionError.message.includes("body.data was not set in the protobuf")
-      ) {
+      const errorMsg = getErrorMessage(executionError);
+      if (errorMsg.includes("body.data was not set in the protobuf")) {
         console.error("🚨 DIAGNOSTIC: FOUND THE PROTOBUF ERROR!");
         console.error(
           "🚨 DIAGNOSTIC: This error occurred during executeWithSigner()"
@@ -393,7 +390,7 @@ export const executeContractFunction = async (
         );
       }
 
-      if (executionError.message.includes("is not a function")) {
+      if (errorMsg.includes("is not a function")) {
         console.error("🚨 DIAGNOSTIC: FOUND FUNCTION CALL ERROR!");
         console.error(
           "🚨 DIAGNOSTIC: This is likely a method invocation issue"
@@ -406,28 +403,25 @@ export const executeContractFunction = async (
       }
 
       throw new Error(
-        `Transaction execution failed: ${executionError.message}`
+        `Transaction execution failed: ${errorMsg}`
       );
     }
 
-    let receipt;
+    let receipt: TransactionReceipt | null = null;
     try {
-
-      // Check if response has getReceiptWithSigner method
-
       if (typeof response.getReceiptWithSigner !== "function") {
-
         if (typeof response.getReceipt === "function") {
-          receipt = await response.getReceipt();
+          // FIX: getReceipt requires a Client parameter
+          // For now, we'll skip getting the receipt if we don't have a client
+          receipt = null;
         } else {
           receipt = null;
         }
       } else {
-        // Get receipt with signer
-        receipt = await response.getReceiptWithSigner(signer);
+        // FIX: Use 'as any' for version compatibility
+        receipt = await response.getReceiptWithSigner(signer as any);
       }
-
-    } catch (receiptError) {
+    } catch (receiptError: unknown) {
       console.error("🚨 DIAGNOSTIC: Error getting receipt:", receiptError);
       console.error(
         "🚨 DIAGNOSTIC: Receipt error type:",
@@ -435,21 +429,19 @@ export const executeContractFunction = async (
       );
       console.error(
         "🚨 DIAGNOSTIC: Receipt error message:",
-        receiptError?.message
+        getErrorMessage(receiptError)
       );
-      console.error("🚨 DIAGNOSTIC: Receipt error stack:", receiptError?.stack);
+      console.error("🚨 DIAGNOSTIC: Receipt error stack:", getErrorStack(receiptError));
 
-      // Check for specific error patterns
-      if (
-        receiptError.message.includes("body.data was not set in the protobuf")
-      ) {
+      const errorMsg = getErrorMessage(receiptError);
+      if (errorMsg.includes("body.data was not set in the protobuf")) {
         console.error("🚨 DIAGNOSTIC: FOUND THE PROTOBUF ERROR IN RECEIPT!");
         console.error(
           "🚨 DIAGNOSTIC: This error occurred during getReceiptWithSigner()"
         );
       }
 
-      if (receiptError.message.includes("is not a function")) {
+      if (errorMsg.includes("is not a function")) {
         console.error("🚨 DIAGNOSTIC: FOUND FUNCTION CALL ERROR IN RECEIPT!");
         console.error(
           "🚨 DIAGNOSTIC: Response object at time of error:",
@@ -457,7 +449,6 @@ export const executeContractFunction = async (
         );
       }
 
-      // Don't throw error for receipt issues - we can still return the response
       receipt = null;
     }
 
@@ -466,32 +457,32 @@ export const executeContractFunction = async (
       response,
       receipt,
       transactionId: response.transactionId.toString(),
-      contractFunctionResult: receipt?.contractFunctionResult || null,
+      // FIX: Type-safe access to contractFunctionResult
+      contractFunctionResult: receipt ? (receipt as any).contractFunctionResult || null : null,
     };
-  } catch (error) {
+  } catch (error: unknown) {
     console.error(
       "🚨 DIAGNOSTIC: Contract execution completely failed:",
       error
     );
-    console.error("🚨 DIAGNOSTIC: Error message:", error.message);
-    console.error("🚨 DIAGNOSTIC: Error stack:", error.stack);
+    console.error("🚨 DIAGNOSTIC: Error message:", getErrorMessage(error));
+    console.error("🚨 DIAGNOSTIC: Error stack:", getErrorStack(error));
 
-    // If signer pattern failed, try the direct sendTransaction approach
+    const errorMsg = getErrorMessage(error);
+    
+    // FIX: Remove call to undefined function
     if (
-      error.message.includes("body.data was not set in the protobuf") ||
-      error.message.includes("Transaction execution failed") ||
-      error.message.includes("Transaction freezing failed")
+      errorMsg.includes("body.data was not set in the protobuf") ||
+      errorMsg.includes("Transaction execution failed") ||
+      errorMsg.includes("Transaction freezing failed")
     ) {
-      return await executeContractFunctionDirect(
-        accountIdForSigning,
-        contractId,
-        functionName,
-        functionParameters,
-        gas
+      // Instead of calling executeContractFunctionDirect (which doesn't exist),
+      // we'll re-throw the error with more context
+      throw new Error(
+        `Contract execution failed: ${errorMsg}. Please try disconnecting and reconnecting your wallet.`
       );
     }
 
     throw error;
   }
 };
-
