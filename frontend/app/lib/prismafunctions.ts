@@ -418,3 +418,32 @@ export const updateUserName = async (userAddress: string, userName: string | nul
     throw error;
   }
 };
+
+// update user payment to a circle
+
+export const updateUserPaymentToCircle = async (userAddress: string, circleId: number, amount: number, txHash: string, description: string) => {
+  try {
+    const user = await getUserByAddress(userAddress);
+    if (!user) {
+      throw new Error("User not found");
+    }
+    const payment = await prisma.payment.create({
+      data: {
+        userId: user.id,
+        circleId: circleId,
+        amount: amount.toString(),
+        description: description,
+        txHash: txHash,
+        doneAt: new Date(),
+      },
+    });
+    if (!payment) {
+      throw new Error("Failed to update user payment to circle");
+    }
+    return payment;
+  }catch (error) {
+    console.error(error);
+    throw error;
+  }
+};
+  
