@@ -26,6 +26,19 @@ import { getCircleBySlug, checkUserIsMemberOfCircle, sendRequestToJoinCircle, ch
 import { useHashConnect } from "@/app/hooks/useHashConnect";
 import { toast } from "sonner";
 
+// FIX: Helper function to format dates consistently on client only
+function formatDateForDisplay(date: Date): string {
+  const day = date.getDate();
+  const month = date.toLocaleString("en-US", { month: "short" }).toLowerCase();
+  const year = date.getFullYear();
+  const hours24 = date.getHours();
+  const hours12 = hours24 === 0 ? 12 : hours24 > 12 ? hours24 - 12 : hours24;
+  const ampm = hours24 >= 12 ? "PM" : "AM";
+  const hours = String(hours12).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${day} ${month} ${year}, ${hours}:${minutes} ${ampm}`;
+}
+
 export default function CircleDetail({
   params,
 }: {
@@ -40,6 +53,8 @@ export default function CircleDetail({
 
   const { accountId } = useHashConnect();
   const [loading, setLoading] = useState(true);
+  // FIX: Add mounted state to prevent hydration mismatch
+  const [mounted, setMounted] = useState(false);
   const [circle, setCircle] = useState({
     id: 0,
     name: "",
@@ -68,6 +83,11 @@ export default function CircleDetail({
   const [isMember, setIsMember] = useState(false);
   const [pendingRequest, setPendingRequest] = useState(false);
   const [notFound, setNotFound] = useState(false);
+
+  // FIX: Set mounted on client side only
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     params.then((p) => setSlug(p.slug));
@@ -134,17 +154,10 @@ export default function CircleDetail({
         const dateSource = started
           ? new Date(prismaCircle.payDate)
           : new Date(prismaCircle.startDate);
-        const day = dateSource.getDate();
-        const month = dateSource
-          .toLocaleString("en-US", { month: "short" })
-          .toLowerCase();
-        const year = dateSource.getFullYear();
-        const hours24 = dateSource.getHours();
-        const hours12 = hours24 === 0 ? 12 : hours24 > 12 ? hours24 - 12 : hours24;
-        const ampm = hours24 >= 12 ? "PM" : "AM";
-        const hours = String(hours12).padStart(2, "0");
-        const minutes = String(dateSource.getMinutes()).padStart(2, "0");
-        const dateLabel = `${day} ${month} ${year}, ${hours}:${minutes} ${ampm}`;
+        
+        // FIX: Format date only on client side to avoid hydration mismatch
+        const dateLabel = mounted ? formatDateForDisplay(dateSource) : "Loading...";
+        
         const loanableHbar =
           ((onChain.loanableAmount || 0) / 100_000_000).toFixed(2) + " HBAR";
         const amountHbar = (Number(prismaCircle.amount || 0)) + " HBAR";
@@ -180,7 +193,7 @@ export default function CircleDetail({
     return () => {
       cancelled = true;
     };
-  }, [slug, accountId]);
+  }, [slug, accountId, mounted]); // FIX: Add mounted to dependencies
 
   const handleLoanSuccess = () => {
     setShowLoanModal(false);
@@ -230,8 +243,15 @@ export default function CircleDetail({
     }
   };
 
-  const shareLink = typeof window !== "undefined" ? window.location.href : "";
+  // FIX: Only get shareLink on client side
+  const shareLink = mounted && typeof window !== "undefined" ? window.location.href : "";
+  
   const copyShare = async () => {
+    // FIX: Check if clipboard API is available
+    if (!mounted || typeof navigator === "undefined" || !navigator.clipboard) {
+      toast.error("Clipboard not available");
+      return;
+    }
     try {
       await navigator.clipboard.writeText(shareLink);
       toast.success("Copied to clipboard");
@@ -273,7 +293,7 @@ export default function CircleDetail({
   }
 
   // Show loading skeleton until all data is loaded
-  if (loading) {
+  if (loading || !mounted) {
     return (
       <div className="min-h-screen bg-primary-light">
         <Header />
@@ -394,7 +414,6 @@ export default function CircleDetail({
                 <button
                   onClick={async () => {
                     await copyShare();
-                    toast.success("Copied to clipboard");
                     setShowShare(true);
                     setTimeout(() => setShowShare(false), 1500);
                   }}
@@ -464,7 +483,7 @@ export default function CircleDetail({
                   <button
                     onClick={() => {
                       if (circle.started) setShowLoanModal(true);
-                      else toast.warning("Circle hasn’t started yet!");
+                      else toast.warning("Circle hasn't started yet!");
                     }}
                     className={`w-full px-4 py-2 rounded-lg font-semibold transition ${
                       circle.started
