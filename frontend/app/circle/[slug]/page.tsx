@@ -1,6 +1,7 @@
 "use client";
 import Header from "@/components/Header";
 import LoanRequestModal from "@/components/LoanRequestModal";
+import PaymentModal from "@/components/PaymentModal";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -12,6 +13,8 @@ import {
   CalendarClock,
   Share2,
   Clock,
+  Loader2,
+  CreditCard,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
@@ -29,9 +32,11 @@ export default function CircleDetail({
   params: Promise<{ slug: string }>;
 }) {
   const [showLoanModal, setShowLoanModal] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showNotification, setShowNotification] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [slug, setSlug] = useState("");
+  const [blockchainCircleId, setBlockchainCircleId] = useState<number | null>(null);
 
   const { accountId } = useHashConnect();
   const [loading, setLoading] = useState(true);
@@ -76,10 +81,11 @@ export default function CircleDetail({
       try {
         const prismaCircle: any = await getCircleBySlug(slug);
         if (!prismaCircle) {
-          setNotFound(true);
+          if (!cancelled) setNotFound(true);
           return;
         }
         const chainCircleId = Number(prismaCircle.blockchainId);
+        if (!cancelled) setBlockchainCircleId(chainCircleId);
         const onChain = await getCircleById(chainCircleId);
         // check membership (only if wallet connected)
         if (accountId) {
@@ -133,9 +139,12 @@ export default function CircleDetail({
           .toLocaleString("en-US", { month: "short" })
           .toLowerCase();
         const year = dateSource.getFullYear();
-        const hours = String(dateSource.getHours()).padStart(2, "0");
+        const hours24 = dateSource.getHours();
+        const hours12 = hours24 === 0 ? 12 : hours24 > 12 ? hours24 - 12 : hours24;
+        const ampm = hours24 >= 12 ? "PM" : "AM";
+        const hours = String(hours12).padStart(2, "0");
         const minutes = String(dateSource.getMinutes()).padStart(2, "0");
-        const dateLabel = `${day} ${month} ${year}, ${hours}${minutes}`;
+        const dateLabel = `${day} ${month} ${year}, ${hours}:${minutes} ${ampm}`;
         const loanableHbar =
           ((onChain.loanableAmount || 0) / 100_000_000).toFixed(2) + " HBAR";
         const amountHbar = (Number(prismaCircle.amount || 0)) + " HBAR";
@@ -177,6 +186,48 @@ export default function CircleDetail({
     setShowLoanModal(false);
     setShowNotification(true);
     setTimeout(() => setShowNotification(false), 5000);
+  };
+
+  const handlePaymentSuccess = async () => {
+    setShowPaymentModal(false);
+    toast.success("Payment successful! Refreshing data...");
+    // Reload circle data
+    if (slug) {
+      setLoading(true);
+      try {
+        const prismaCircle: any = await getCircleBySlug(slug);
+        if (prismaCircle) {
+          const chainCircleId = Number(prismaCircle.blockchainId);
+          const onChain = await getCircleById(chainCircleId);
+          const membersOnChain = await getMembersOnchainWithBalances(chainCircleId);
+          const memberList = (membersOnChain.members || []).map(
+            (m: any, idx: number) => {
+              const balH = ((m.balance || 0) / 100_000_000).toFixed(2) + " HBAR";
+              const loanH = ((m.loan || 0) / 100_000_000).toFixed(2) + " HBAR";
+              const label =
+                accountId && m.address === accountId ? "You" : m.address;
+              const status = (m.balance || 0) > 0 ? "Active" : "Pending";
+              return {
+                position: idx + 1,
+                address: m.address,
+                label,
+                status,
+                balance: balH,
+                loan: loanH,
+              };
+            }
+          );
+          const loanableHbar =
+            ((onChain.loanableAmount || 0) / 100_000_000).toFixed(2) + " HBAR";
+          setCircle((prev) => ({ ...prev, loanableAmount: loanableHbar }));
+          setMembers(memberList);
+        }
+      } catch (error) {
+        console.error("Failed to refresh data:", error);
+      } finally {
+        setLoading(false);
+      }
+    }
   };
 
   const shareLink = typeof window !== "undefined" ? window.location.href : "";
@@ -221,6 +272,25 @@ export default function CircleDetail({
     );
   }
 
+  // Show loading skeleton until all data is loaded
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-primary-light">
+        <Header />
+        <section className="pt-24 md:pt-16 pb-8">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-center min-h-[400px]">
+              <div className="text-center">
+                <Loader2 className="w-12 h-12 animate-spin text-primary-blue mx-auto mb-4" />
+                <p className="text-primary-slate text-lg">Loading circle details...</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-primary-light">
       <Header />
@@ -251,6 +321,18 @@ export default function CircleDetail({
         availableAmount={circle.loanableAmount}
         onSuccess={handleLoanSuccess}
       />
+
+      {blockchainCircleId !== null && (
+        <PaymentModal
+          isOpen={showPaymentModal}
+          onClose={() => setShowPaymentModal(false)}
+          circleName={circle.name || "Circle"}
+          circleId={circle.id}
+          circleBlockchainId={blockchainCircleId}
+          requiredAmount={circle.amount}
+          onSuccess={handlePaymentSuccess}
+        />
+      )}
 
       {/* Hero Section */}
       <section className="pt-24 md:pt-16 pb-8">
@@ -427,6 +509,25 @@ export default function CircleDetail({
                 <Clock className="w-4 h-4" />
                 This circle has not started yet. Balances & payout order will update once it
                 begins.
+              </div>
+            )}
+
+            {/* Make Payment Button - Only for members */}
+            {isMember && (
+              <div className="mb-6 flex justify-end">
+                <button
+                  onClick={() => {
+                    if (!accountId) {
+                      toast.error("Please connect your wallet to make a payment");
+                      return;
+                    }
+                    setShowPaymentModal(true);
+                  }}
+                  className="px-6 py-3 bg-primary-blue text-white rounded-xl font-semibold hover:bg-primary-blue/90 transition-all flex items-center gap-2 shadow-md hover:shadow-lg"
+                >
+                  <CreditCard className="w-5 h-5" />
+                  Make Payment
+                </button>
               </div>
             )}
 
