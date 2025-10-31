@@ -4,6 +4,14 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: false,
   },
+  
+  // Use Turbopack (default in Next.js 16) with proper config
+  turbopack: {
+    // This tells Turbopack about browser-incompatible modules
+    resolveExtensions: ['.tsx', '.ts', '.jsx', '.js', '.json'],
+  },
+  
+  // Keep webpack config as fallback
   webpack: (config, { isServer }) => {
     // Force all @hashgraph/sdk imports to use the same version
     config.resolve.alias = {
