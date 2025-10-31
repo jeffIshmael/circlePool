@@ -93,9 +93,12 @@ export default function MyCircles() {
               .toLocaleString("en-US", { month: "short" })
               .toLowerCase();
             const year = dateSource.getFullYear();
-            const hours = String(dateSource.getHours()).padStart(2, "0");
+            const hours24 = dateSource.getHours();
+            const hours12 = hours24 === 0 ? 12 : hours24 > 12 ? hours24 - 12 : hours24;
+            const ampm = hours24 >= 12 ? "PM" : "AM";
+            const hours = String(hours12).padStart(2, "0");
             const minutes = String(dateSource.getMinutes()).padStart(2, "0");
-            const nextPayoutLabel = `${day} ${month} ${year}, ${hours}${minutes}`;
+            const nextPayoutLabel = `${day} ${month} ${year}, ${hours}:${minutes} ${ampm}`;
 
             return {
               id: c.id,
