@@ -1,8 +1,8 @@
 /**
  * Circle Hook - Contract interaction for circles
  * 
- * This hook uses lazy-loaded HashConnect service for all blockchain operations.
- * All @hashgraph/sdk imports are dynamic to prevent build-time errors.
+ * This hook uses WalletConnect service for all blockchain operations.
+ * Uses @hashgraph/sdk directly for transactions, eliminating duplicate bundling issues.
  */
 
 import { useState } from "react";
@@ -32,14 +32,14 @@ export function useCircle() {
     if (!isConnected || !accountId) {
       throw new Error("Wallet not connected");
     }
-    // Dynamically import the hashconnect service only on client side
+    // Only run on client side
     if (typeof window === "undefined") {
       throw new Error("This function can only be called on the client side");
     }
 
     console.log("Calling executeContractFunction...");
 
-    const { executeContractFunction } = await import("../services/hashconnect");
+    const { executeContractFunction } = await import("../services/walletConnect");
 
     setLoading(true);
     setError(null);
@@ -67,14 +67,14 @@ export function useCircle() {
       throw new Error("Wallet not connected");
     }
 
-    // Dynamically import the hashconnect service only on client side
+    // Only run on client side
     if (typeof window === "undefined") {
       throw new Error("This function can only be called on the client side");
     }
 
     console.log("Calling depositCash...");
 
-    const { executeContractFunction } = await import("../services/hashconnect");
+    const { executeContractFunction } = await import("../services/walletConnect");
     setLoading(true);
     setError(null);
     try {
