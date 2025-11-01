@@ -17,9 +17,11 @@ import { SignClient } from "@walletconnect/sign-client";
 import { WalletConnectModal } from "@walletconnect/modal";
 import {
   AccountId,
+  Client,
   ContractExecuteTransaction,
   ContractFunctionParameters,
   Hbar,
+  LedgerId,
 } from "@hashgraph/sdk";
 
 // WalletConnect instance
@@ -190,8 +192,9 @@ export async function signTransaction(
     throw new Error(`Account ${accountIdForSigning} is not connected`);
   }
 
-  // Convert transaction to bytes for signing
+  // Convert transaction to bytes and base64 for signing
   const transactionBytes = transaction.toBytes();
+  const transactionBase64 = Buffer.from(transactionBytes).toString('base64');
 
   try {
     const response = await signClientInstance.request({
@@ -200,7 +203,7 @@ export async function signTransaction(
       request: {
         method: HederaJsonRpcMethod.SignAndReturnTransaction,
         params: {
-          transaction: transactionBytes,
+          transaction: transactionBase64,
           accountId: accountId.toString(),
         },
       },
@@ -231,8 +234,9 @@ export async function executeTransaction(
     throw new Error(`Account ${accountIdForSigning} is not connected`);
   }
 
-  // Convert transaction to bytes
+  // Convert transaction to bytes and base64
   const transactionBytes = transaction.toBytes();
+  const transactionBase64 = Buffer.from(transactionBytes).toString('base64');
 
   try {
     const response = await signClientInstance.request({
@@ -241,7 +245,7 @@ export async function executeTransaction(
       request: {
         method: HederaJsonRpcMethod.SendTransaction,
         params: {
-          transaction: transactionBytes,
+          transaction: transactionBase64,
           accountId: accountId.toString(),
         },
       },
@@ -362,10 +366,20 @@ export async function executeContractFunction(
 
   transaction = transaction.setMaxTransactionFee(new Hbar(2));
 
-  // Freeze transaction
-  const frozenTransaction = await transaction.freeze();
+  // CRITICAL: Transactions must be frozen with a client to set node account IDs
+  // Create a client without operator (network only) for freezing
+  const client = CHAIN_ID === HEDERA_TESTNET
+    ? Client.forTestnet()
+    : Client.forMainnet();
+  
+  // Freeze transaction with client (this sets node account IDs)
+  const frozenTransaction = await transaction.freezeWith(client);
 
   // Execute via WalletConnect
+  // Convert transaction bytes to base64 string (WalletConnect expects base64)
+  const transactionBytes = frozenTransaction.toBytes();
+  const transactionBase64 = Buffer.from(transactionBytes).toString('base64');
+
   try {
     const response = await signClientInstance.request({
       topic: session.topic,
@@ -373,7 +387,7 @@ export async function executeContractFunction(
       request: {
         method: HederaJsonRpcMethod.SendTransaction,
         params: {
-          transaction: frozenTransaction.toBytes(),
+          transaction: transactionBase64,
           accountId: accountId.toString(),
         },
       },
