@@ -1,14 +1,17 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // 🔹 Turbopack configuration (used for both dev and build)
-  // NOTE: Turbopack doesn't support webpack config - all settings must use Turbopack APIs
+  // 🔹 Turbopack configuration
+  // Note: @hashgraph/sdk is bundled with hashconnect, which can cause duplicate bundling
+  // We keep both in package.json because we use @hashgraph/sdk directly in server-side code
+  // Turbopack should handle deduplication automatically, but we exclude from optimization
   
-  // 🔹 Experimental optimization for package imports
-  // NOTE: Disabled for @hashgraph/sdk and hashconnect to prevent duplicate bundling
-  // These packages are lazy-loaded dynamically and should not be optimized
-  // Turbopack is used by default in Next.js 16 - no additional config needed
   experimental: {
-    // optimizePackageImports: ['@hashgraph/sdk', 'hashconnect'], // Disabled to prevent chunk conflicts
+    // Disable package import optimization for these to prevent duplicate bundling
+    // Turbopack will bundle them separately but reuse shared dependencies
+    optimizePackageImports: [
+      // Exclude hashconnect and @hashgraph/sdk from optimization
+      // This prevents duplicate bundling when hashconnect already includes @hashgraph/sdk
+    ],
   },
 
   // 🔹 Prevent browser caching of Next.js static chunks

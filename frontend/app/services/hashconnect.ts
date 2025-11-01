@@ -22,8 +22,17 @@
 let hcInstance: any = null;
 let hcInitPromiseInstance: Promise<any> | null = null;
 
-// Module-level cache to prevent duplicate imports
-// This ensures hashconnect and @hashgraph/sdk are only imported once
+// Global window cache to prevent duplicate imports across the entire app
+// This ensures hashconnect and @hashgraph/sdk are only imported once globally
+// Using window to persist across module reloads and prevent duplicate bundling
+declare global {
+  interface Window {
+    __hashconnectModule?: any;
+    __hashgraphSDKModule?: any;
+    __moduleImportPromise?: Promise<[any, any]>;
+  }
+}
+
 let hashconnectModule: any = null;
 let hashgraphSDKModule: any = null;
 let moduleImportPromise: Promise<[any, any]> | null = null;
@@ -46,6 +55,18 @@ const getAppMetadata = () => ({
  * This prevents duplicate bundling and "Identifier 'n' has already been declared" errors
  */
 async function importModulesOnce(): Promise<[any, any]> {
+  // Check global window cache first to prevent duplicate imports across chunks
+  if (typeof window !== "undefined") {
+    if (window.__moduleImportPromise) {
+      return window.__moduleImportPromise;
+    }
+
+    if (window.__hashconnectModule && window.__hashgraphSDKModule) {
+      return Promise.resolve([window.__hashconnectModule, window.__hashgraphSDKModule]);
+    }
+  }
+
+  // Check module-level cache
   if (moduleImportPromise) {
     return moduleImportPromise;
   }
@@ -55,23 +76,28 @@ async function importModulesOnce(): Promise<[any, any]> {
   }
 
   // Import modules once to prevent duplicate bundling
-  // This ensures hashconnect and @hashgraph/sdk are only loaded once per page load
-  // STEP 1: Testing if just importing causes the error
-  console.log("[DEBUG] Importing hashconnect and @hashgraph/sdk...");
-  moduleImportPromise = Promise.all([
-    import("hashconnect"),
-    import("@hashgraph/sdk"),
-  ]).then(([hashconnect, sdk]) => {
-    console.log("[DEBUG] Modules imported successfully");
-    hashconnectModule = hashconnect;
-    hashgraphSDKModule = sdk;
-    return [hashconnect, sdk] as [any, any];
-  }).catch((error) => {
-    console.error("[DEBUG] Module import failed:", error);
-    moduleImportPromise = null;
-    throw error;
-  }) as Promise<[any, any]>;
+  // Webpack config ensures shared dependencies (Protobuf, Long.js) are in a common chunk
+  // This prevents "Identifier 'n' has already been declared" errors
+  const hashconnectModuleResult = await import("hashconnect");
+  const sdkModuleResult = await import("@hashgraph/sdk");
+  
+  // Store in both module-level and window-level cache
+  hashconnectModule = hashconnectModuleResult;
+  hashgraphSDKModule = sdkModuleResult;
+  
+  if (typeof window !== "undefined") {
+    window.__hashconnectModule = hashconnectModuleResult;
+    window.__hashgraphSDKModule = sdkModuleResult;
+  }
 
+  const result: [any, any] = [hashconnectModuleResult, sdkModuleResult];
+  
+  // Cache the promise
+  moduleImportPromise = Promise.resolve(result);
+  if (typeof window !== "undefined") {
+    window.__moduleImportPromise = moduleImportPromise;
+  }
+  
   return moduleImportPromise;
 }
 
@@ -89,14 +115,9 @@ async function initializeHashConnect() {
     return hcInstance;
   }
 
-  // STEP 2: Test if importing and using the classes causes the error
-  console.log("[DEBUG] Importing modules for HashConnect initialization...");
   const [{ HashConnect }, { LedgerId }] = await importModulesOnce();
-  console.log("[DEBUG] Modules imported, creating HashConnect instance...");
-
   const appMetadata = getAppMetadata();
 
-  console.log("[DEBUG] Creating HashConnect with LedgerId...");
   hcInstance = new HashConnect(
     LedgerId.fromString(env),
     "bfa190dbe93fcf30377b932b31129d05",
@@ -104,11 +125,8 @@ async function initializeHashConnect() {
     true
   );
 
-  console.log("[DEBUG] Initializing HashConnect...");
   hcInitPromiseInstance = hcInstance.init();
-
   await hcInitPromiseInstance;
-  console.log("[DEBUG] HashConnect initialized successfully");
 
   return hcInstance;
 }
