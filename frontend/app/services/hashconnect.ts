@@ -1,5 +1,23 @@
 "use client";
 
+/**
+ * HashConnect Service - Lazy-loaded client-side wallet integration
+ * 
+ * This module provides lazy-loaded HashConnect and @hashgraph/sdk functionality
+ * to prevent build-time errors from Node.js-specific dependencies.
+ * 
+ * IMPORTANT:
+ * - All imports are dynamic (using `await import()`)
+ * - All functions are async and only work on the client side
+ * - Never import hashconnect or @hashgraph/sdk statically in this file
+ * 
+ * Usage in components/hooks:
+ * ```ts
+ * const { getHashConnectInstance, executeContractFunction } = await import('../services/hashconnect');
+ * const instance = await getHashConnectInstance();
+ * ```
+ */
+
 // Lazy-loaded HashConnect instance - only available on client side
 let hcInstance: any = null;
 let hcInitPromiseInstance: Promise<any> | null = null;

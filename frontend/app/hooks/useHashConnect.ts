@@ -1,5 +1,12 @@
 "use client";
 
+/**
+ * HashConnect Hook - Client-side wallet connection management
+ * 
+ * This hook uses lazy-loaded HashConnect service to prevent build-time errors.
+ * All HashConnect and @hashgraph/sdk imports are dynamic.
+ */
+
 import { useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../store';
