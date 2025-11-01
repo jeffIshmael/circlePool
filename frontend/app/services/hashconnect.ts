@@ -101,20 +101,10 @@ async function initializeHashConnect() {
   const hashconnectModule = await importHashConnectOnly();
   const { HashConnect } = hashconnectModule;
   
-  // CRITICAL: Access LedgerId through hashconnect's bundled SDK to avoid duplicate bundling
-  // Try to get it from hashconnect's internal module structure
-  // If hashconnect doesn't expose it, we'll need to import @hashgraph/sdk but only once
-  // First, try to access SDK through hashconnect's internal structure
-  let LedgerId: any;
-  try {
-    // Try to access SDK through hashconnect - check if it's available in the module
-    // hashconnect uses @hashgraph/sdk internally, so it might be accessible
-    const sdk = await import("@hashgraph/sdk");
-    LedgerId = sdk.LedgerId;
-  } catch (error) {
-    // If import fails, we can't proceed without LedgerId
-    throw new Error("Failed to access LedgerId - required for HashConnect initialization");
-  }
+  // Use singleton SDK module to ensure single import
+  // This prevents duplicate bundling by using the same module instance
+  const { getLedgerId } = await import("../lib/sdkSingleton");
+  const LedgerId = await getLedgerId();
   
   const appMetadata = getAppMetadata();
 
@@ -189,9 +179,9 @@ export const signTransaction = async (
     throw new Error(`Account ${accountIdForSigning} is not paired`);
   }
 
-  // Access @hashgraph/sdk - must import it but only when needed
-  // This is unavoidable since we need AccountId, but we try to minimize duplicate bundling
-  const { AccountId } = await import("@hashgraph/sdk");
+  // Use singleton SDK module to ensure single import
+  const { getAccountId } = await import("../lib/sdkSingleton");
+  const AccountId = await getAccountId();
   const accountId = AccountId.fromString(accountIdForSigning);
   const result = await instance.signTransaction(accountId as any, transaction);
   return result;
@@ -216,9 +206,9 @@ export const executeTransaction = async (
     throw new Error(`Account ${accountIdForSigning} is not paired`);
   }
 
-  // Access @hashgraph/sdk - must import it but only when needed
-  // This is unavoidable since we need AccountId, but we try to minimize duplicate bundling
-  const { AccountId } = await import("@hashgraph/sdk");
+  // Use singleton SDK module to ensure single import
+  const { getAccountId } = await import("../lib/sdkSingleton");
+  const AccountId = await getAccountId();
   const accountId = AccountId.fromString(accountIdForSigning);
   const result = await instance.sendTransaction(accountId as any, transaction);
   return result;
@@ -243,9 +233,9 @@ export const signMessages = async (
     throw new Error(`Account ${accountIdForSigning} is not paired`);
   }
 
-  // Access @hashgraph/sdk - must import it but only when needed
-  // This is unavoidable since we need AccountId, but we try to minimize duplicate bundling
-  const { AccountId } = await import("@hashgraph/sdk");
+  // Use singleton SDK module to ensure single import
+  const { getAccountId } = await import("../lib/sdkSingleton");
+  const AccountId = await getAccountId();
   const accountId = AccountId.fromString(accountIdForSigning);
   const result = await instance.signMessages(accountId as any, message);
   return result;
@@ -280,14 +270,25 @@ export const executeContractFunction = async (
     throw new Error("This function can only be called on the client side");
   }
 
-  // Access @hashgraph/sdk - must import it but only when needed
-  // This is unavoidable since we need these classes, but we try to minimize duplicate bundling
+  // Use singleton SDK module to ensure single import
   const {
+    getAccountId,
+    getContractExecuteTransaction,
+    getContractFunctionParameters,
+    getHbar,
+  } = await import("../lib/sdkSingleton");
+  
+  const [
     AccountId,
     ContractExecuteTransaction,
     ContractFunctionParameters,
     Hbar,
-  } = await import("@hashgraph/sdk");
+  ] = await Promise.all([
+    getAccountId(),
+    getContractExecuteTransaction(),
+    getContractFunctionParameters(),
+    getHbar(),
+  ]);
 
   const instance = await getHashConnectInstance();
   await getInitPromise();

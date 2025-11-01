@@ -3,13 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --webpack",
-    "build": "next build --webpack",
+    "dev": "next dev --turbopack",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "postinstall": "prisma generate --no-engine && prisma migrate deploy"
   },
   "dependencies": {
+  "@hashgraph/sdk": "2.41.0",
   "@prisma/client": "^6.18.0",
   "@reduxjs/toolkit": "^2.9.2",
   "dotenv": "^17.2.3",
