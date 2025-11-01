@@ -22,6 +22,12 @@
 let hcInstance: any = null;
 let hcInitPromiseInstance: Promise<any> | null = null;
 
+// Module-level cache to prevent duplicate imports
+// This ensures hashconnect and @hashgraph/sdk are only imported once
+let hashconnectModule: any = null;
+let hashgraphSDKModule: any = null;
+let moduleImportPromise: Promise<[any, any]> | null = null;
+
 const env = "testnet";
 
 const getAppMetadata = () => ({
@@ -34,6 +40,33 @@ const getAppMetadata = () => ({
   ],
   url: "https://circle-pool.vercel.app",
 });
+
+/**
+ * Import hashconnect and @hashgraph/sdk modules once
+ * This prevents duplicate bundling and "Identifier 'n' has already been declared" errors
+ */
+async function importModulesOnce() {
+  if (moduleImportPromise) {
+    return moduleImportPromise;
+  }
+
+  if (hashconnectModule && hashgraphSDKModule) {
+    return [hashconnectModule, hashgraphSDKModule];
+  }
+
+  // Import modules once to prevent duplicate bundling
+  // This ensures hashconnect and @hashgraph/sdk are only loaded once per page load
+  moduleImportPromise = Promise.all([
+    import("hashconnect"),
+    import("@hashgraph/sdk"),
+  ]).then(([hashconnect, sdk]) => {
+    hashconnectModule = hashconnect;
+    hashgraphSDKModule = sdk;
+    return [hashconnect, sdk];
+  });
+
+  return moduleImportPromise;
+}
 
 /**
  * Initialize HashConnect instance (lazy-loaded)
@@ -49,11 +82,8 @@ async function initializeHashConnect() {
     return hcInstance;
   }
 
-  // Lazy load both libraries
-  const [{ HashConnect }, { LedgerId }] = await Promise.all([
-    import("hashconnect"),
-    import("@hashgraph/sdk"),
-  ]);
+  // Import modules once to prevent duplicate bundling
+  const [{ HashConnect }, { LedgerId }] = await importModulesOnce();
 
   const appMetadata = getAppMetadata();
 
@@ -129,8 +159,9 @@ export const signTransaction = async (
     throw new Error(`Account ${accountIdForSigning} is not paired`);
   }
 
-  // Lazy load AccountId
-  const { AccountId } = await import("@hashgraph/sdk");
+  // Use cached SDK module to prevent duplicate imports
+  const SDK = await importModulesOnce();
+  const { AccountId } = SDK[1];
   const accountId = AccountId.fromString(accountIdForSigning);
   const result = await instance.signTransaction(accountId as any, transaction);
   return result;
@@ -155,8 +186,9 @@ export const executeTransaction = async (
     throw new Error(`Account ${accountIdForSigning} is not paired`);
   }
 
-  // Lazy load AccountId
-  const { AccountId } = await import("@hashgraph/sdk");
+  // Use cached SDK module to prevent duplicate imports
+  const SDK = await importModulesOnce();
+  const { AccountId } = SDK[1];
   const accountId = AccountId.fromString(accountIdForSigning);
   const result = await instance.sendTransaction(accountId as any, transaction);
   return result;
@@ -181,8 +213,9 @@ export const signMessages = async (
     throw new Error(`Account ${accountIdForSigning} is not paired`);
   }
 
-  // Lazy load AccountId
-  const { AccountId } = await import("@hashgraph/sdk");
+  // Use cached SDK module to prevent duplicate imports
+  const SDK = await importModulesOnce();
+  const { AccountId } = SDK[1];
   const accountId = AccountId.fromString(accountIdForSigning);
   const result = await instance.signMessages(accountId as any, message);
   return result;
@@ -217,8 +250,8 @@ export const executeContractFunction = async (
     throw new Error("This function can only be called on the client side");
   }
 
-  // Lazy load SDK modules
-  const SDK = await import("@hashgraph/sdk");
+  // Use cached SDK module to prevent duplicate imports
+  const [, SDK] = await importModulesOnce();
   const {
     AccountId,
     ContractExecuteTransaction,
