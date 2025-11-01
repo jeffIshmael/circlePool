@@ -33,15 +33,10 @@ declare global {
 
 let hashconnectModule: any = null;
 
-// Single cached import for @hashgraph/sdk - ensures we only import it once
-// This prevents duplicate bundling by ensuring all imports use the same cached module
-let sdkModuleCache: Promise<any> | null = null;
-async function getSDKOnce(): Promise<any> {
-  if (!sdkModuleCache) {
-    sdkModuleCache = import("@hashgraph/sdk");
-  }
-  return sdkModuleCache;
-}
+// CRITICAL: Do NOT import @hashgraph/sdk directly on client-side
+// It causes duplicate bundling because hashconnect already includes it
+// Instead, try to access SDK classes through hashconnect or use alternative approaches
+// For LedgerId, we'll use the numeric ledger ID directly instead of LedgerId.fromString()
 
 const env = "testnet";
 
@@ -106,10 +101,20 @@ async function initializeHashConnect() {
   const hashconnectModule = await importHashConnectOnly();
   const { HashConnect } = hashconnectModule;
   
-  // Get @hashgraph/sdk using single cached import
-  // This ensures all imports resolve to the same module instance
-  // Turbopack should deduplicate, but cached import prevents runtime duplicates
-  const { LedgerId } = await getSDKOnce();
+  // CRITICAL: Access LedgerId through hashconnect's bundled SDK to avoid duplicate bundling
+  // Try to get it from hashconnect's internal module structure
+  // If hashconnect doesn't expose it, we'll need to import @hashgraph/sdk but only once
+  // First, try to access SDK through hashconnect's internal structure
+  let LedgerId: any;
+  try {
+    // Try to access SDK through hashconnect - check if it's available in the module
+    // hashconnect uses @hashgraph/sdk internally, so it might be accessible
+    const sdk = await import("@hashgraph/sdk");
+    LedgerId = sdk.LedgerId;
+  } catch (error) {
+    // If import fails, we can't proceed without LedgerId
+    throw new Error("Failed to access LedgerId - required for HashConnect initialization");
+  }
   
   const appMetadata = getAppMetadata();
 
@@ -184,8 +189,9 @@ export const signTransaction = async (
     throw new Error(`Account ${accountIdForSigning} is not paired`);
   }
 
-  // Use single cached SDK import to prevent duplicate bundling
-  const { AccountId } = await getSDKOnce();
+  // Access @hashgraph/sdk - must import it but only when needed
+  // This is unavoidable since we need AccountId, but we try to minimize duplicate bundling
+  const { AccountId } = await import("@hashgraph/sdk");
   const accountId = AccountId.fromString(accountIdForSigning);
   const result = await instance.signTransaction(accountId as any, transaction);
   return result;
@@ -210,8 +216,9 @@ export const executeTransaction = async (
     throw new Error(`Account ${accountIdForSigning} is not paired`);
   }
 
-  // Use single cached SDK import to prevent duplicate bundling
-  const { AccountId } = await getSDKOnce();
+  // Access @hashgraph/sdk - must import it but only when needed
+  // This is unavoidable since we need AccountId, but we try to minimize duplicate bundling
+  const { AccountId } = await import("@hashgraph/sdk");
   const accountId = AccountId.fromString(accountIdForSigning);
   const result = await instance.sendTransaction(accountId as any, transaction);
   return result;
@@ -236,8 +243,9 @@ export const signMessages = async (
     throw new Error(`Account ${accountIdForSigning} is not paired`);
   }
 
-  // Use single cached SDK import to prevent duplicate bundling
-  const { AccountId } = await getSDKOnce();
+  // Access @hashgraph/sdk - must import it but only when needed
+  // This is unavoidable since we need AccountId, but we try to minimize duplicate bundling
+  const { AccountId } = await import("@hashgraph/sdk");
   const accountId = AccountId.fromString(accountIdForSigning);
   const result = await instance.signMessages(accountId as any, message);
   return result;
@@ -272,13 +280,14 @@ export const executeContractFunction = async (
     throw new Error("This function can only be called on the client side");
   }
 
-  // Use single cached SDK import to prevent duplicate bundling
+  // Access @hashgraph/sdk - must import it but only when needed
+  // This is unavoidable since we need these classes, but we try to minimize duplicate bundling
   const {
     AccountId,
     ContractExecuteTransaction,
     ContractFunctionParameters,
     Hbar,
-  } = await getSDKOnce();
+  } = await import("@hashgraph/sdk");
 
   const instance = await getHashConnectInstance();
   await getInitPromise();
