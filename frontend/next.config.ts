@@ -4,13 +4,19 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: false,
   },
-  turbopack:{},
   
-  // Only add webpack config if needed for server-side builds
+  // Disable code splitting for problematic packages
+  experimental: {
+    // This prevents Next.js from splitting these packages into separate chunks
+    optimizePackageImports: ['@hashgraph/sdk', 'hashconnect'],
+  },
+  
+  // Configure Turbopack
+  turbopack: {},
+  
+  // Webpack config as fallback
   webpack: (config, { isServer }) => {
-    // Only modify client-side config
     if (!isServer) {
-      // Fix for Node.js modules not available in browser
       config.resolve.fallback = {
         ...config.resolve.fallback,
         net: false,
@@ -20,6 +26,14 @@ const nextConfig: NextConfig = {
       };
     }
     return config;
+  },
+  
+  // Prevent output file tracing issues
+  outputFileTracingExcludes: {
+    '*': [
+      'node_modules/@hashgraph/sdk/**',
+      'node_modules/hashconnect/**',
+    ],
   },
 };
 
