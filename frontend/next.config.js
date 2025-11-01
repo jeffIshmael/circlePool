@@ -11,27 +11,20 @@ const nextConfig = {
   // 🔹 Webpack configuration for proper module deduplication
   webpack: (config, { isServer }) => {
     if (!isServer) {
-      // Client-side: Configure splitChunks to ensure @hashgraph/sdk is in a shared chunk
+      // Client-side: Configure splitChunks to ensure @hashgraph/sdk is properly deduplicated
       config.optimization = {
         ...config.optimization,
         splitChunks: {
           chunks: 'all',
           cacheGroups: {
-            // Force @hashgraph/sdk into a single shared chunk
-            hashgraphSDK: {
-              test: /[\\/]node_modules[\\/]@hashgraph[\\/]sdk[\\/]/,
-              name: 'hashgraph-sdk-shared',
-              priority: 1000,
-              enforce: true,
-              reuseExistingChunk: true,
-            },
-            // hashconnect in its own chunk
+            // CRITICAL: Force @hashgraph/sdk into hashconnect's chunk to prevent duplicate bundling
+            // This ensures both hashconnect and our code use the exact same @hashgraph/sdk instance
             hashconnect: {
-              test: /[\\/]node_modules[\\/]hashconnect[\\/]/,
-              name: 'hashconnect',
-              priority: 900,
-              enforce: true,
-              reuseExistingChunk: true,
+              test: /[\\/]node_modules[\\/](hashconnect|@hashgraph[\\/]sdk)[\\/]/,
+              name: 'hashconnect-with-sdk',
+              priority: 1000, // Highest priority
+              enforce: true, // Force creation even if minChunks not met
+              reuseExistingChunk: true, // Always reuse if exists
             },
             default: {
               minChunks: 2,
@@ -40,7 +33,43 @@ const nextConfig = {
             },
           },
         },
+        moduleIds: 'deterministic',
+        chunkIds: 'deterministic',
       };
+      
+      // Also use resolve.alias to ensure same module resolution
+      config.resolve = config.resolve || {};
+      config.resolve.alias = {
+        ...config.resolve.alias,
+        '@hashgraph/sdk': require.resolve('@hashgraph/sdk'),
+      };
+      
+      // Exclude Node.js modules from client bundle
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        net: false,
+        tls: false,
+        dns: false,
+        crypto: false,
+        stream: false,
+        http: false,
+        https: false,
+        http2: false,
+        zlib: false,
+        path: false,
+        os: false,
+        bufferutil: false,
+        'utf-8-validate': false,
+      };
+      
+      // Ignore Node.js-specific modules from @hashgraph/sdk
+      config.plugins = config.plugins || [];
+      config.plugins.push(
+        new (require('webpack')).IgnorePlugin({
+          resourceRegExp: /^(grpc|@grpc\/grpc-js|http2)$/,
+        })
+      );
     }
     
     return config;

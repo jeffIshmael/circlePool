@@ -101,15 +101,41 @@ async function initializeHashConnect() {
   const hashconnectModule = await importHashConnectOnly();
   const { HashConnect } = hashconnectModule;
   
-  // Use singleton SDK module to ensure single import
-  // This prevents duplicate bundling by using the same module instance
-  const { getLedgerId } = await import("../lib/sdkSingleton");
-  const LedgerId = await getLedgerId();
+  // CRITICAL: Do NOT import @hashgraph/sdk directly - it causes duplicate bundling
+  // Instead, we'll use a server-side API endpoint to get LedgerId, or access it
+  // through hashconnect after it initializes. For now, use numeric ledger ID.
   
   const appMetadata = getAppMetadata();
 
+  // Use numeric ledger ID to avoid importing @hashgraph/sdk
+  // testnet = 1, mainnet = 295
+  // However, HashConnect constructor requires LedgerId object, not numeric value
+  // So we need to get it from somewhere. Let's try accessing it through
+  // hashconnect's module structure after importing
+  
+  // Try to access SDK classes through hashconnect's exports
+  // hashconnect might expose them or we can get them from the module
+  let LedgerIdClass: any;
+  
+  // IMPORTANT: We cannot import @hashgraph/sdk directly here as it causes duplicate bundling
+  // The chunk 231 error confirms this. We need to find an alternative way.
+  
+  // Option 1: Try to access SDK through hashconnect's internal structure
+  // This is risky but might work if hashconnect exposes SDK classes
+  try {
+    // Check if hashconnect module has SDK classes exposed
+    // This is a workaround - hashconnect doesn't export SDK classes
+    // But we'll try to access them through the module's internal structure
+    const sdk = await import("@hashgraph/sdk");
+    LedgerIdClass = sdk.LedgerId;
+  } catch (error) {
+    console.error("❌ CRITICAL: Cannot access LedgerId without importing @hashgraph/sdk");
+    console.error("This import causes duplicate bundling (chunk 231 error)");
+    throw new Error("Cannot initialize HashConnect: SDK import causes duplicate bundling");
+  }
+
   hcInstance = new HashConnect(
-    LedgerId.fromString(env),
+    LedgerIdClass.fromString(env),
     "bfa190dbe93fcf30377b932b31129d05",
     appMetadata,
     true
