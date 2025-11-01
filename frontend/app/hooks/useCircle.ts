@@ -1,3 +1,10 @@
+/**
+ * Circle Hook - Contract interaction for circles
+ * 
+ * This hook uses lazy-loaded HashConnect service for all blockchain operations.
+ * All @hashgraph/sdk imports are dynamic to prevent build-time errors.
+ */
+
 import { useState } from "react";
 import { useHashConnect } from "./useHashConnect";
 import { CONTRACT_ID } from "../lib/constants";

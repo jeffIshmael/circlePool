@@ -6,7 +6,6 @@ import { getHbarBalance } from "@/app/services/circleService";
 import { useHashConnect } from "@/app/hooks/useHashConnect";
 import { toast } from "sonner";
 import { updateUserPaymentToCircle } from "@/app/lib/prismafunctions";
-import { TransactionReceipt, TransactionResponse } from "@hashgraph/sdk";
 
 interface PaymentModalProps {
   isOpen: boolean;
@@ -20,8 +19,8 @@ interface PaymentModalProps {
 
 interface DepositCashResult {
   contractFunctionResult: null | any;
-  receipt: TransactionReceipt;
-  response: TransactionResponse;
+  receipt: any;
+  response: any;
   success: boolean;
   transactionId: string;
 }

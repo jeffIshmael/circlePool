@@ -5,7 +5,6 @@
  * Utility for creating Hedera client instances for server-side operations
  */
 import 'server-only';
-import { AccountId, Client, PrivateKey } from "@hashgraph/sdk";
 
   // Get network from environment or default to testnet
 const network = process.env.HEDERA_NETWORK || "testnet";
@@ -13,8 +12,12 @@ const network = process.env.HEDERA_NETWORK || "testnet";
 /**
  * Creates and returns a configured Hedera client for server-side operations
  * Requires HEDERA_OPERATOR_ID and HEDERA_OPERATOR_KEY environment variables
+ * Uses dynamic imports to prevent build-time errors
  */
-export function getHederaClient(): Client {
+export async function getHederaClient() {
+  // Lazy load SDK modules
+  const { AccountId, Client, PrivateKey } = await import("@hashgraph/sdk");
+  
   const operatorId = process.env.HEDERA_OPERATOR_ID as string;
   const operatorKey = process.env.HEDERA_OPERATOR_KEY as string;
 

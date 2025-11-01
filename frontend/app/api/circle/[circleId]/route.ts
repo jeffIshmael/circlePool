@@ -7,7 +7,6 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { ContractCallQuery, ContractFunctionParameters, Hbar, ContractId } from "@hashgraph/sdk";
 import { getHederaClient } from "@/app/lib/hederaClient";
 import { validateApiKey, unauthorizedResponse } from "@/app/lib/apiAuth";
 import { CONTRACT_ID } from "@/app/lib/constants";
@@ -22,6 +21,9 @@ export async function GET(
       return unauthorizedResponse();
     }
 
+    // Lazy load SDK modules
+    const { ContractCallQuery, ContractFunctionParameters, Hbar, ContractId } = await import("@hashgraph/sdk");
+    
     const { circleId: rawCircleId } = await params;
     console.log("rawCircleId",rawCircleId);
     const circleId = Number.parseInt(String(rawCircleId), 10);
@@ -33,7 +35,7 @@ export async function GET(
       );
     }
 
-    const client = getHederaClient();
+    const client = await getHederaClient();
 
     // Query getCircle function
     const query = new ContractCallQuery()
