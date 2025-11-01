@@ -32,29 +32,15 @@ declare global {
 }
 
 let hashconnectModule: any = null;
-let sdkModule: any = null;
-let sdkImportPromise: Promise<any> | null = null;
 
-/**
- * Get @hashgraph/sdk module - cached to prevent duplicate imports
- * Since hashconnect includes it, npm overrides should ensure only one version is used
- */
-async function getSDKModule(): Promise<any> {
-  if (sdkModule) {
-    return sdkModule;
+// Single cached import for @hashgraph/sdk - ensures we only import it once
+// This prevents duplicate bundling by ensuring all imports use the same cached module
+let sdkModuleCache: Promise<any> | null = null;
+async function getSDKOnce(): Promise<any> {
+  if (!sdkModuleCache) {
+    sdkModuleCache = import("@hashgraph/sdk");
   }
-  
-  if (sdkImportPromise) {
-    return sdkImportPromise;
-  }
-  
-  // Import @hashgraph/sdk - npm overrides ensures it uses the same version as hashconnect
-  sdkImportPromise = import("@hashgraph/sdk").then((module) => {
-    sdkModule = module;
-    return module;
-  });
-  
-  return sdkImportPromise;
+  return sdkModuleCache;
 }
 
 const env = "testnet";
@@ -116,14 +102,14 @@ async function initializeHashConnect() {
     return hcInstance;
   }
 
-  // Import hashconnect only - it includes @hashgraph/sdk
+  // Import hashconnect - it includes @hashgraph/sdk as a dependency
   const hashconnectModule = await importHashConnectOnly();
   const { HashConnect } = hashconnectModule;
   
-  // Get @hashgraph/sdk - it's already bundled with hashconnect, so npm should dedupe it
-  // Using a cached import to prevent duplicate bundling
-  const sdkModule = await getSDKModule();
-  const { LedgerId } = sdkModule;
+  // Get @hashgraph/sdk using single cached import
+  // This ensures all imports resolve to the same module instance
+  // Turbopack should deduplicate, but cached import prevents runtime duplicates
+  const { LedgerId } = await getSDKOnce();
   
   const appMetadata = getAppMetadata();
 
@@ -198,9 +184,8 @@ export const signTransaction = async (
     throw new Error(`Account ${accountIdForSigning} is not paired`);
   }
 
-  // Use cached SDK module to prevent duplicate imports
-  const SDK = await getSDKModule();
-  const { AccountId } = SDK;
+  // Use single cached SDK import to prevent duplicate bundling
+  const { AccountId } = await getSDKOnce();
   const accountId = AccountId.fromString(accountIdForSigning);
   const result = await instance.signTransaction(accountId as any, transaction);
   return result;
@@ -225,9 +210,8 @@ export const executeTransaction = async (
     throw new Error(`Account ${accountIdForSigning} is not paired`);
   }
 
-  // Use cached SDK module to prevent duplicate imports
-  const SDK = await getSDKModule();
-  const { AccountId } = SDK;
+  // Use single cached SDK import to prevent duplicate bundling
+  const { AccountId } = await getSDKOnce();
   const accountId = AccountId.fromString(accountIdForSigning);
   const result = await instance.sendTransaction(accountId as any, transaction);
   return result;
@@ -252,9 +236,8 @@ export const signMessages = async (
     throw new Error(`Account ${accountIdForSigning} is not paired`);
   }
 
-  // Use cached SDK module to prevent duplicate imports
-  const SDK = await getSDKModule();
-  const { AccountId } = SDK;
+  // Use single cached SDK import to prevent duplicate bundling
+  const { AccountId } = await getSDKOnce();
   const accountId = AccountId.fromString(accountIdForSigning);
   const result = await instance.signMessages(accountId as any, message);
   return result;
@@ -289,14 +272,13 @@ export const executeContractFunction = async (
     throw new Error("This function can only be called on the client side");
   }
 
-  // Use cached SDK module to prevent duplicate imports
-  const SDK = await getSDKModule();
+  // Use single cached SDK import to prevent duplicate bundling
   const {
     AccountId,
     ContractExecuteTransaction,
     ContractFunctionParameters,
     Hbar,
-  } = SDK;
+  } = await getSDKOnce();
 
   const instance = await getHashConnectInstance();
   await getInitPromise();
