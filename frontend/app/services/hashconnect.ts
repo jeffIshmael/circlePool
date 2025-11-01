@@ -44,16 +44,8 @@ const getAppMetadata = () => ({
 /**
  * Import hashconnect and @hashgraph/sdk modules once
  * This prevents duplicate bundling and "Identifier 'n' has already been declared" errors
- * 
- * TEMPORARILY DISABLED FOR DEBUGGING - Comment out this stub to re-enable
  */
 async function importModulesOnce(): Promise<[any, any]> {
-  // TEMPORARY: Stub implementation to test if hashconnect is causing the error
-  // Remove this stub and uncomment the real import below after testing
-  console.warn("[DEBUG] HashConnect imports are temporarily disabled for testing");
-  throw new Error("HashConnect is temporarily disabled for debugging. If error persists, it's not from hashconnect.");
-  
-  /* REAL IMPLEMENTATION - Uncomment to restore:
   if (moduleImportPromise) {
     return moduleImportPromise;
   }
@@ -64,48 +56,47 @@ async function importModulesOnce(): Promise<[any, any]> {
 
   // Import modules once to prevent duplicate bundling
   // This ensures hashconnect and @hashgraph/sdk are only loaded once per page load
+  // STEP 1: Testing if just importing causes the error
+  console.log("[DEBUG] Importing hashconnect and @hashgraph/sdk...");
   moduleImportPromise = Promise.all([
     import("hashconnect"),
     import("@hashgraph/sdk"),
   ]).then(([hashconnect, sdk]) => {
+    console.log("[DEBUG] Modules imported successfully");
     hashconnectModule = hashconnect;
     hashgraphSDKModule = sdk;
-    return [hashconnect, sdk];
-  });
+    return [hashconnect, sdk] as [any, any];
+  }).catch((error) => {
+    console.error("[DEBUG] Module import failed:", error);
+    moduleImportPromise = null;
+    throw error;
+  }) as Promise<[any, any]>;
 
   return moduleImportPromise;
-  */
-  
-  // TypeScript needs a return statement - but this will never execute due to throw above
-  return [null, null] as any;
 }
 
 /**
  * Initialize HashConnect instance (lazy-loaded)
  * This should only be called on the client side
- * 
- * TEMPORARILY DISABLED FOR DEBUGGING
  */
 async function initializeHashConnect() {
   if (typeof window === "undefined") {
     throw new Error("HashConnect can only be initialized on the client side");
   }
 
-  // TEMPORARY: Return stub to test if hashconnect is causing the error
-  console.warn("[DEBUG] HashConnect initialization is temporarily disabled");
-  throw new Error("HashConnect is temporarily disabled for debugging");
-  
-  /* REAL IMPLEMENTATION - Uncomment to restore:
   if (hcInstance && hcInitPromiseInstance) {
     await hcInitPromiseInstance;
     return hcInstance;
   }
 
-  // Import modules once to prevent duplicate bundling
+  // STEP 2: Test if importing and using the classes causes the error
+  console.log("[DEBUG] Importing modules for HashConnect initialization...");
   const [{ HashConnect }, { LedgerId }] = await importModulesOnce();
+  console.log("[DEBUG] Modules imported, creating HashConnect instance...");
 
   const appMetadata = getAppMetadata();
 
+  console.log("[DEBUG] Creating HashConnect with LedgerId...");
   hcInstance = new HashConnect(
     LedgerId.fromString(env),
     "bfa190dbe93fcf30377b932b31129d05",
@@ -113,12 +104,13 @@ async function initializeHashConnect() {
     true
   );
 
+  console.log("[DEBUG] Initializing HashConnect...");
   hcInitPromiseInstance = hcInstance.init();
 
   await hcInitPromiseInstance;
+  console.log("[DEBUG] HashConnect initialized successfully");
 
   return hcInstance;
-  */
 }
 
 export const getHashConnectInstance = async () => {
