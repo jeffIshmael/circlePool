@@ -17,11 +17,11 @@ export function useHashConnect() {
 
         const { getHashConnectInstance, getInitPromise, getConnectedAccountIds } = await import('../services/hashconnect');
 
-        const instance = getHashConnectInstance();
+        const instance = await getHashConnectInstance();
         await getInitPromise();
 
-        instance.pairingEvent.on(() => {
-          const accountIds = getConnectedAccountIds();
+        instance.pairingEvent.on(async () => {
+          const accountIds = await getConnectedAccountIds();
           if (accountIds && accountIds.length > 0) {
             dispatch(setConnected({
               accountId: accountIds[0].toString()
@@ -35,7 +35,7 @@ export function useHashConnect() {
 
         instance.connectionStatusChangeEvent.on(() => {});
 
-        const accountIds = getConnectedAccountIds();
+        const accountIds = await getConnectedAccountIds();
         if (accountIds && accountIds.length > 0) {
           dispatch(setConnected({
             accountId: accountIds[0].toString()
@@ -60,7 +60,7 @@ export function useHashConnect() {
       const { getHashConnectInstance } = await import('../services/hashconnect');
 
       console.log("Attempting to connect to wallet...");
-      const instance = getHashConnectInstance();
+      const instance = await getHashConnectInstance();
       await instance.openPairingModal();
     } catch (error) {
       console.error('Connection failed:', error);
@@ -74,7 +74,7 @@ export function useHashConnect() {
 
       const { getHashConnectInstance } = await import('../services/hashconnect');
 
-      const instance = getHashConnectInstance();
+      const instance = await getHashConnectInstance();
       instance.disconnect();
       dispatch(setDisconnected());
     } catch (error) {

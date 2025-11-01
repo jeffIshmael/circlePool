@@ -1,9 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Note: swcMinify is deprecated in Next.js 16
   experimental: {
     optimizePackageImports: ['@hashgraph/sdk', 'hashconnect'],
-    turbo: false,
   },
+  turbopack:{},
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.resolve.fallback = {

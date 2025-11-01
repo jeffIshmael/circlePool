@@ -1,19 +1,12 @@
 "use client";
 
-import { HashConnect } from "hashconnect";
-import {
-  AccountId,
-  ContractExecuteTransaction,
-  ContractFunctionParameters,
-  Hbar,
-  LedgerId,
-  TransactionReceipt,
-  Client,
-} from "@hashgraph/sdk";
+// Lazy-loaded HashConnect instance - only available on client side
+let hcInstance: any = null;
+let hcInitPromiseInstance: Promise<any> | null = null;
 
 const env = "testnet";
 
-const appMetadata = {
+const getAppMetadata = () => ({
   name: "CirclePool",
   description: "CirclePool - Hedera Hashgraph DApp",
   icons: [
@@ -22,60 +15,104 @@ const appMetadata = {
       : "/favicon.ico",
   ],
   url: "https://circle-pool.vercel.app",
-};
+});
 
-export const hc = new HashConnect(
-  LedgerId.fromString(env),
-  "bfa190dbe93fcf30377b932b31129d05",
-  appMetadata,
-  true
-);
+/**
+ * Initialize HashConnect instance (lazy-loaded)
+ * This should only be called on the client side
+ */
+async function initializeHashConnect() {
+  if (typeof window === "undefined") {
+    throw new Error("HashConnect can only be initialized on the client side");
+  }
 
-export const hcInitPromise = hc.init();
+  if (hcInstance && hcInitPromiseInstance) {
+    await hcInitPromiseInstance;
+    return hcInstance;
+  }
 
-export const getHashConnectInstance = (): HashConnect => {
-  if (!hc) {
+  // Lazy load both libraries
+  const [{ HashConnect }, { LedgerId }] = await Promise.all([
+    import("hashconnect"),
+    import("@hashgraph/sdk"),
+  ]);
+
+  const appMetadata = getAppMetadata();
+
+  hcInstance = new HashConnect(
+    LedgerId.fromString(env),
+    "bfa190dbe93fcf30377b932b31129d05",
+    appMetadata,
+    true
+  );
+
+  hcInitPromiseInstance = hcInstance.init();
+
+  await hcInitPromiseInstance;
+
+  return hcInstance;
+}
+
+export const getHashConnectInstance = async () => {
+  if (typeof window === "undefined") {
     throw new Error(
-      "HashConnect not initialized. Make sure this is called on the client side."
+      "HashConnect not available. Make sure this is called on the client side."
     );
   }
-  return hc;
+
+  if (!hcInstance) {
+    return await initializeHashConnect();
+  }
+
+  if (hcInitPromiseInstance) {
+    await hcInitPromiseInstance;
+  }
+
+  return hcInstance;
 };
 
-export const getConnectedAccountIds = () => {
-  const instance = getHashConnectInstance();
+export const getConnectedAccountIds = async () => {
+  const instance = await getHashConnectInstance();
   return instance.connectedAccountIds;
 };
 
-export const getInitPromise = (): Promise<void> => {
-  if (!hcInitPromise) {
+export const getInitPromise = async (): Promise<void> => {
+  if (typeof window === "undefined") {
     throw new Error(
-      "HashConnect not initialized. Make sure this is called on the client side."
+      "HashConnect not available. Make sure this is called on the client side."
     );
   }
-  return hcInitPromise;
+
+  if (!hcInitPromiseInstance) {
+    await initializeHashConnect();
+  }
+
+  if (hcInitPromiseInstance) {
+    await hcInitPromiseInstance;
+  }
 };
 
 export const signTransaction = async (
   accountIdForSigning: string,
   transaction: any
 ) => {
-  const instance = getHashConnectInstance();
+  const instance = await getHashConnectInstance();
   await getInitPromise();
 
-  const accountIds = getConnectedAccountIds();
+  const accountIds = await getConnectedAccountIds();
   if (!accountIds || accountIds.length === 0) {
     throw new Error("No connected accounts");
   }
 
   const isAccountIdForSigningPaired = accountIds.some(
-    (id) => id.toString() === accountIdForSigning.toString()
+    (id: any) => id.toString() === accountIdForSigning.toString()
   );
   if (!isAccountIdForSigningPaired) {
     throw new Error(`Account ${accountIdForSigning} is not paired`);
   }
 
-  // FIX: Cast string to AccountId properly
+  // Lazy load AccountId
+  const { AccountId } = await import("@hashgraph/sdk");
   const accountId = AccountId.fromString(accountIdForSigning);
   const result = await instance.signTransaction(accountId as any, transaction);
   return result;
@@ -85,22 +122,23 @@ export const executeTransaction = async (
   accountIdForSigning: string,
   transaction: any
 ) => {
-  const instance = getHashConnectInstance();
+  const instance = await getHashConnectInstance();
   await getInitPromise();
 
-  const accountIds = getConnectedAccountIds();
+  const accountIds = await getConnectedAccountIds();
   if (!accountIds || accountIds.length === 0) {
     throw new Error("No connected accounts");
   }
 
   const isAccountIdForSigningPaired = accountIds.some(
-    (id) => id.toString() === accountIdForSigning.toString()
+    (id: any) => id.toString() === accountIdForSigning.toString()
   );
   if (!isAccountIdForSigningPaired) {
     throw new Error(`Account ${accountIdForSigning} is not paired`);
   }
 
-  // FIX: Cast string to AccountId properly
+  // Lazy load AccountId
+  const { AccountId } = await import("@hashgraph/sdk");
   const accountId = AccountId.fromString(accountIdForSigning);
   const result = await instance.sendTransaction(accountId as any, transaction);
   return result;
@@ -110,22 +148,23 @@ export const signMessages = async (
   accountIdForSigning: string,
   message: string
 ) => {
-  const instance = getHashConnectInstance();
+  const instance = await getHashConnectInstance();
   await getInitPromise();
 
-  const accountIds = getConnectedAccountIds();
+  const accountIds = await getConnectedAccountIds();
   if (!accountIds || accountIds.length === 0) {
     throw new Error("No connected accounts");
   }
 
   const isAccountIdForSigningPaired = accountIds.some(
-    (id) => id.toString() === accountIdForSigning.toString()
+    (id: any) => id.toString() === accountIdForSigning.toString()
   );
   if (!isAccountIdForSigningPaired) {
     throw new Error(`Account ${accountIdForSigning} is not paired`);
   }
 
-  // FIX: Cast string to AccountId properly
+  // Lazy load AccountId
+  const { AccountId } = await import("@hashgraph/sdk");
   const accountId = AccountId.fromString(accountIdForSigning);
   const result = await instance.signMessages(accountId as any, message);
   return result;
@@ -156,16 +195,29 @@ export const executeContractFunction = async (
   functionParameters: any,
   gas: number = 500000
 ) => {
-  const instance = getHashConnectInstance();
+  if (typeof window === "undefined") {
+    throw new Error("This function can only be called on the client side");
+  }
+
+  // Lazy load SDK modules
+  const SDK = await import("@hashgraph/sdk");
+  const {
+    AccountId,
+    ContractExecuteTransaction,
+    ContractFunctionParameters,
+    Hbar,
+  } = SDK;
+
+  const instance = await getHashConnectInstance();
   await getInitPromise();
 
-  const accountIds = getConnectedAccountIds();
+  const accountIds = await getConnectedAccountIds();
   if (!accountIds || accountIds.length === 0) {
     throw new Error("No connected accounts");
   }
 
   const isAccountIdForSigningPaired = accountIds.some(
-    (id) => id.toString() === accountIdForSigning.toString()
+    (id: any) => id.toString() === accountIdForSigning.toString()
   );
   if (!isAccountIdForSigningPaired) {
     throw new Error(`Account ${accountIdForSigning} is not paired`);
@@ -320,13 +372,6 @@ export const executeContractFunction = async (
 
     let frozenTransaction;
     try {
-      if (signer) {
-        const signerMethods = Object.getOwnPropertyNames(
-          Object.getPrototypeOf(signer)
-        );
-        const signerOwnMethods = Object.getOwnPropertyNames(signer);
-      }
-
       if (typeof transaction.freezeWithSigner !== "function") {
         throw new Error("Transaction does not have freezeWithSigner method");
       }
@@ -407,7 +452,7 @@ export const executeContractFunction = async (
       );
     }
 
-    let receipt: TransactionReceipt | null = null;
+    let receipt: any | null = null;
     try {
       if (typeof response.getReceiptWithSigner !== "function") {
         if (typeof response.getReceipt === "function") {

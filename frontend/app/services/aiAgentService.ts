@@ -10,19 +10,8 @@
  * is set as the AI agent on the contract before using these functions.
  */
 
-import {
-  ContractExecuteTransaction,
-  ContractFunctionParameters,
-  ContractId,
-  Hbar,
-  TransactionResponse,
-  TransactionReceipt,
-} from "@hashgraph/sdk";
 import { getHederaClient } from "@/app/lib/hederaClient";
 import { CONTRACT_ID } from "@/app/lib/constants";
-
-const client = getHederaClient();
-const contractId = ContractId.fromString(CONTRACT_ID);
 
 /**
  * Process a loan for a member in a circle
@@ -35,8 +24,19 @@ export async function processLoan(
   memberAddress: string,
   circleId: number,
   amount: bigint | number
-): Promise<TransactionReceipt> {
+) {
+  // Lazy load SDK modules
+  const {
+    ContractExecuteTransaction,
+    ContractFunctionParameters,
+    ContractId,
+    Hbar,
+  } = await import("@hashgraph/sdk");
+  
   try {
+    const client = await getHederaClient();
+    const contractId = ContractId.fromString(CONTRACT_ID);
+    
     const transaction = new ContractExecuteTransaction()
       .setContractId(contractId)
       .setGas(500000)
@@ -49,7 +49,7 @@ export async function processLoan(
       )
       .setMaxTransactionFee(new Hbar(2));
 
-    const response: TransactionResponse = await transaction.execute(client);
+    const response = await transaction.execute(client);
     const receipt = await response.getReceipt(client);
 
     console.log(`✅ Loan processed for ${memberAddress} in circle ${circleId}`);
@@ -69,12 +69,23 @@ export async function processLoan(
 export async function addMemberToPayoutOrder(
   circleId: number,
   memberAddresses: string[]
-): Promise<TransactionReceipt> {
+) {
+  // Lazy load SDK modules
+  const {
+    ContractExecuteTransaction,
+    ContractFunctionParameters,
+    ContractId,
+    Hbar,
+  } = await import("@hashgraph/sdk");
+  
   try {
     if (!memberAddresses || memberAddresses.length === 0) {
       throw new Error("Member addresses array cannot be empty");
     }
 
+    const client = await getHederaClient();
+    const contractId = ContractId.fromString(CONTRACT_ID);
+    
     const params = new ContractFunctionParameters()
       .addUint256(circleId);
     
@@ -92,7 +103,7 @@ export async function addMemberToPayoutOrder(
       .setFunction("addMemberToPayoutOrder", params)
       .setMaxTransactionFee(new Hbar(2));
 
-    const response: TransactionResponse = await transaction.execute(client);
+    const response = await transaction.execute(client);
     const receipt = await response.getReceipt(client);
 
     console.log(
@@ -114,12 +125,23 @@ export async function addMemberToPayoutOrder(
  */
 export async function checkPayDate(
   circleIds: number[]
-): Promise<TransactionReceipt> {
+) {
+  // Lazy load SDK modules
+  const {
+    ContractExecuteTransaction,
+    ContractFunctionParameters,
+    ContractId,
+    Hbar,
+  } = await import("@hashgraph/sdk");
+  
   try {
     if (!circleIds || circleIds.length === 0) {
       throw new Error("Circle IDs array cannot be empty");
     }
 
+    const client = await getHederaClient();
+    const contractId = ContractId.fromString(CONTRACT_ID);
+    
     const params = new ContractFunctionParameters();
     
     // Add uint array - Hedera SDK requires adding uints individually
@@ -133,7 +155,7 @@ export async function checkPayDate(
       .setFunction("checkPayDate", params)
       .setMaxTransactionFee(new Hbar(5));
 
-    const response: TransactionResponse = await transaction.execute(client);
+    const response = await transaction.execute(client);
     const receipt = await response.getReceipt(client);
 
     console.log(`✅ Checked pay dates for ${circleIds.length} circles`);
@@ -153,12 +175,23 @@ export async function checkPayDate(
 export async function setPayoutOrder(
   circleId: number,
   payoutOrder: string[]
-): Promise<TransactionReceipt> {
+) {
+  // Lazy load SDK modules
+  const {
+    ContractExecuteTransaction,
+    ContractFunctionParameters,
+    ContractId,
+    Hbar,
+  } = await import("@hashgraph/sdk");
+  
   try {
     if (!payoutOrder || payoutOrder.length === 0) {
       throw new Error("Payout order array cannot be empty");
     }
 
+    const client = await getHederaClient();
+    const contractId = ContractId.fromString(CONTRACT_ID);
+    
     const params = new ContractFunctionParameters().addUint256(circleId);
     
     // Add address array
@@ -172,7 +205,7 @@ export async function setPayoutOrder(
       .setFunction("setPayoutOrder", params)
       .setMaxTransactionFee(new Hbar(2));
 
-    const response: TransactionResponse = await transaction.execute(client);
+    const response = await transaction.execute(client);
     const receipt = await response.getReceipt(client);
 
     console.log(`✅ Set payout order for circle ${circleId}`);
@@ -182,4 +215,3 @@ export async function setPayoutOrder(
     throw new Error(`Failed to set payout order: ${error.message}`);
   }
 }
-
