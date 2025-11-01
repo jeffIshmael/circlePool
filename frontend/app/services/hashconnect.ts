@@ -28,14 +28,34 @@ let hcInitPromiseInstance: Promise<any> | null = null;
 declare global {
   interface Window {
     __hashconnectModule?: any;
-    __hashgraphSDKModule?: any;
-    __moduleImportPromise?: Promise<[any, any]>;
   }
 }
 
 let hashconnectModule: any = null;
-let hashgraphSDKModule: any = null;
-let moduleImportPromise: Promise<[any, any]> | null = null;
+let sdkModule: any = null;
+let sdkImportPromise: Promise<any> | null = null;
+
+/**
+ * Get @hashgraph/sdk module - cached to prevent duplicate imports
+ * Since hashconnect includes it, npm overrides should ensure only one version is used
+ */
+async function getSDKModule(): Promise<any> {
+  if (sdkModule) {
+    return sdkModule;
+  }
+  
+  if (sdkImportPromise) {
+    return sdkImportPromise;
+  }
+  
+  // Import @hashgraph/sdk - npm overrides ensures it uses the same version as hashconnect
+  sdkImportPromise = import("@hashgraph/sdk").then((module) => {
+    sdkModule = module;
+    return module;
+  });
+  
+  return sdkImportPromise;
+}
 
 const env = "testnet";
 
@@ -51,54 +71,35 @@ const getAppMetadata = () => ({
 });
 
 /**
- * Import hashconnect and @hashgraph/sdk modules once
+ * Import hashconnect module once
+ * CRITICAL: Only import hashconnect, not @hashgraph/sdk directly, since hashconnect already includes it
  * This prevents duplicate bundling and "Identifier 'n' has already been declared" errors
  */
-async function importModulesOnce(): Promise<[any, any]> {
+async function importHashConnectOnly(): Promise<any> {
   // Check global window cache first to prevent duplicate imports across chunks
   if (typeof window !== "undefined") {
-    if (window.__moduleImportPromise) {
-      return window.__moduleImportPromise;
-    }
-
-    if (window.__hashconnectModule && window.__hashgraphSDKModule) {
-      return Promise.resolve([window.__hashconnectModule, window.__hashgraphSDKModule]);
+    if (window.__hashconnectModule) {
+      return window.__hashconnectModule;
     }
   }
 
   // Check module-level cache
-  if (moduleImportPromise) {
-    return moduleImportPromise;
+  if (hashconnectModule) {
+    return hashconnectModule;
   }
 
-  if (hashconnectModule && hashgraphSDKModule) {
-    return [hashconnectModule, hashgraphSDKModule];
-  }
-
-  // Import modules once to prevent duplicate bundling
-  // Webpack config ensures shared dependencies (Protobuf, Long.js) are in a common chunk
-  // This prevents "Identifier 'n' has already been declared" errors
+  // IMPORTANT: Only import hashconnect - it already includes @hashgraph/sdk as a dependency
+  // Importing @hashgraph/sdk separately causes duplicate bundling even with npm overrides
   const hashconnectModuleResult = await import("hashconnect");
-  const sdkModuleResult = await import("@hashgraph/sdk");
   
   // Store in both module-level and window-level cache
   hashconnectModule = hashconnectModuleResult;
-  hashgraphSDKModule = sdkModuleResult;
   
   if (typeof window !== "undefined") {
     window.__hashconnectModule = hashconnectModuleResult;
-    window.__hashgraphSDKModule = sdkModuleResult;
-  }
-
-  const result: [any, any] = [hashconnectModuleResult, sdkModuleResult];
-  
-  // Cache the promise
-  moduleImportPromise = Promise.resolve(result);
-  if (typeof window !== "undefined") {
-    window.__moduleImportPromise = moduleImportPromise;
   }
   
-  return moduleImportPromise;
+  return hashconnectModuleResult;
 }
 
 /**
@@ -115,7 +116,15 @@ async function initializeHashConnect() {
     return hcInstance;
   }
 
-  const [{ HashConnect }, { LedgerId }] = await importModulesOnce();
+  // Import hashconnect only - it includes @hashgraph/sdk
+  const hashconnectModule = await importHashConnectOnly();
+  const { HashConnect } = hashconnectModule;
+  
+  // Get @hashgraph/sdk - it's already bundled with hashconnect, so npm should dedupe it
+  // Using a cached import to prevent duplicate bundling
+  const sdkModule = await getSDKModule();
+  const { LedgerId } = sdkModule;
+  
   const appMetadata = getAppMetadata();
 
   hcInstance = new HashConnect(
@@ -190,8 +199,8 @@ export const signTransaction = async (
   }
 
   // Use cached SDK module to prevent duplicate imports
-  const SDK = await importModulesOnce();
-  const { AccountId } = SDK[1];
+  const SDK = await getSDKModule();
+  const { AccountId } = SDK;
   const accountId = AccountId.fromString(accountIdForSigning);
   const result = await instance.signTransaction(accountId as any, transaction);
   return result;
@@ -217,8 +226,8 @@ export const executeTransaction = async (
   }
 
   // Use cached SDK module to prevent duplicate imports
-  const SDK = await importModulesOnce();
-  const { AccountId } = SDK[1];
+  const SDK = await getSDKModule();
+  const { AccountId } = SDK;
   const accountId = AccountId.fromString(accountIdForSigning);
   const result = await instance.sendTransaction(accountId as any, transaction);
   return result;
@@ -244,8 +253,8 @@ export const signMessages = async (
   }
 
   // Use cached SDK module to prevent duplicate imports
-  const SDK = await importModulesOnce();
-  const { AccountId } = SDK[1];
+  const SDK = await getSDKModule();
+  const { AccountId } = SDK;
   const accountId = AccountId.fromString(accountIdForSigning);
   const result = await instance.signMessages(accountId as any, message);
   return result;
@@ -281,7 +290,7 @@ export const executeContractFunction = async (
   }
 
   // Use cached SDK module to prevent duplicate imports
-  const [, SDK] = await importModulesOnce();
+  const SDK = await getSDKModule();
   const {
     AccountId,
     ContractExecuteTransaction,
