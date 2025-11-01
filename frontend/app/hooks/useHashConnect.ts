@@ -1,16 +1,23 @@
 "use client";
 
 /**
- * HashConnect Hook - Client-side wallet connection management
+ * WalletConnect Hook - Client-side wallet connection management
  * 
- * This hook uses lazy-loaded HashConnect service to prevent build-time errors.
- * All HashConnect and @hashgraph/sdk imports are dynamic.
+ * This hook uses WalletConnect directly with @hashgraph/sdk,
+ * replacing HashConnect to eliminate duplicate bundling issues.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../store';
 import { setLoading, setConnected, setDisconnected } from '../store/hashconnectSlice';
+import {
+  initializeWalletConnect,
+  connectWallet,
+  disconnectWallet,
+  getConnectedAccountIds,
+  getSession,
+} from '../services/walletConnect';
 
 export function useHashConnect() {
   const dispatch = useDispatch();
@@ -18,57 +25,50 @@ export function useHashConnect() {
   const { isConnected, accountId, isLoading } = hashconnectState;
 
   useEffect(() => {
-    const setupHashConnect = async () => {
+    const setupWalletConnect = async () => {
       try {
         if (typeof window === 'undefined') return;
 
-        const { getHashConnectInstance, getInitPromise, getConnectedAccountIds } = await import('../services/hashconnect');
+        await initializeWalletConnect();
 
-        const instance = await getHashConnectInstance();
-        await getInitPromise();
-
-        instance.pairingEvent.on(async () => {
+        // Check for existing session
+        const existingSession = getSession();
+        if (existingSession) {
           const accountIds = await getConnectedAccountIds();
           if (accountIds && accountIds.length > 0) {
             dispatch(setConnected({
               accountId: accountIds[0].toString()
             }));
           }
-        });
-
-        instance.disconnectionEvent.on(() => {
-          dispatch(setDisconnected());
-        });
-
-        instance.connectionStatusChangeEvent.on(() => {});
-
-        const accountIds = await getConnectedAccountIds();
-        if (accountIds && accountIds.length > 0) {
-          dispatch(setConnected({
-            accountId: accountIds[0].toString()
-          }));
         }
+
+        // Listen for session events
+        // Note: WalletConnect handles session persistence automatically
+        // We check on mount and after connect/disconnect actions
       } catch (error) {
-        console.error('HashConnect setup failed:', error);
+        console.error('WalletConnect setup failed:', error);
         dispatch(setLoading(false));
       }
     };
 
-    setupHashConnect();
+    setupWalletConnect();
   }, [dispatch]);
 
   const connect = async () => {
     dispatch(setLoading(true));
     try {
-      // Only run on client side
       if (typeof window === 'undefined') return;
 
-      // Dynamically import HashConnect service
-      const { getHashConnectInstance } = await import('../services/hashconnect');
-
       console.log("Attempting to connect to wallet...");
-      const instance = await getHashConnectInstance();
-      await instance.openPairingModal();
+      await connectWallet();
+
+      // Get connected account after successful connection
+      const accountIds = await getConnectedAccountIds();
+      if (accountIds && accountIds.length > 0) {
+        dispatch(setConnected({
+          accountId: accountIds[0].toString()
+        }));
+      }
     } catch (error) {
       console.error('Connection failed:', error);
       dispatch(setLoading(false));
@@ -79,10 +79,7 @@ export function useHashConnect() {
     try {
       if (typeof window === 'undefined') return;
 
-      const { getHashConnectInstance } = await import('../services/hashconnect');
-
-      const instance = await getHashConnectInstance();
-      instance.disconnect();
+      await disconnectWallet();
       dispatch(setDisconnected());
     } catch (error) {
       console.error('Disconnect failed:', error);

@@ -5,7 +5,7 @@ const nextConfig = {
 
   // 🔹 Experimental optimization for package imports
   experimental: {
-    optimizePackageImports: ['@hashgraph/sdk', 'hashconnect'],
+    optimizePackageImports: ['@hashgraph/sdk'],
   },
 
   // 🔹 Prevent browser caching of Next.js static chunks
@@ -50,7 +50,7 @@ const nextConfig = {
   outputFileTracingExcludes: {
     '*': [
       'node_modules/@hashgraph/sdk/**',
-      'node_modules/hashconnect/**',
+      'node_modules/@walletconnect/**',
     ],
   },
 };
