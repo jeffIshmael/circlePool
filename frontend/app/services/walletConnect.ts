@@ -145,7 +145,6 @@ export async function connectWallet(): Promise<void> {
     console.log("✅ Wallet connected!");
     const accounts = await getConnectedAccountIds();
     console.log("Connected accounts:", accounts.map(a => a.toString()));
-    console.log("Supported methods:", Object.values(HederaJsonRpcMethod));
   } catch (error) {
     console.error("Error connecting wallet:", error);
     throw error;

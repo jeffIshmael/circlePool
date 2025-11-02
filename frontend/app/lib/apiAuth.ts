@@ -1,6 +1,6 @@
 /**
  * @title API Authorization Utility
- * @author Jeff Muchiri
+ * 
  * 
  * Authorization middleware for protecting API routes
  */
