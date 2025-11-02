@@ -118,14 +118,105 @@ export async function addMemberToPayoutOrder(
   }
 }
 
+export interface DisbursementResult {
+  circleId: number;
+  recipient: string;
+  amount: bigint;
+  timestamp: Date;
+  type: "disbursement";
+}
+
+export interface RefundResult {
+  circleId: number;
+  member: string;
+  amount: bigint;
+  timestamp: Date;
+  type: "refund";
+}
+
+export interface PayDateCheckResult {
+  circleId: number;
+  wasDisbursed: boolean;
+  disbursements?: DisbursementResult[];
+  refunds?: RefundResult[];
+  transactionId: string;
+  timestamp: Date;
+}
+
+/**
+ * Query contract payments to find new payments after a transaction
+ */
+async function getNewPayments(
+  client: any,
+  contractId: any,
+  beforeTransactionTimestamp: number
+): Promise<Array<{
+  id: number;
+  circleId: number;
+  receiver: string;
+  amount: bigint;
+  timestamp: number;
+}>> {
+  const { ContractCallQuery, ContractFunctionParameters, Hbar } = await import("@hashgraph/sdk");
+  
+  const query = new ContractCallQuery()
+    .setContractId(contractId)
+    .setGas(200000)
+    .setFunction("getPayments", new ContractFunctionParameters())
+    .setQueryPayment(new Hbar(0.1));
+
+  const result = await query.execute(client);
+  
+  const payments: Array<{
+    id: number;
+    circleId: number;
+    receiver: string;
+    amount: bigint;
+    timestamp: number;
+  }> = [];
+
+  try {
+    // Parse dynamic array of Payment structs (same as payments API)
+    let index = 0;
+    while (true) {
+      try {
+        const id = result.getUint256(index).toNumber();
+        const circleId = result.getUint256(index + 1).toNumber();
+        const receiver = result.getAddress(index + 2)?.toString() || "";
+        const amount = BigInt(result.getUint256(index + 3).toString());
+        const timestamp = result.getUint256(index + 4).toNumber();
+        
+        // Only return payments that happened after our transaction
+        if (timestamp > beforeTransactionTimestamp) {
+          payments.push({
+            id,
+            circleId,
+            receiver,
+            amount,
+            timestamp,
+          });
+        }
+        
+        index += 5; // Move to next payment struct
+      } catch (e) {
+        break; // End of array
+      }
+    }
+  } catch (parseError) {
+    console.error("Error parsing payments:", parseError);
+  }
+  
+  return payments;
+}
+
 /**
  * Check pay dates for multiple circles and process payouts/refunds
  * @param circleIds - Array of circle IDs to check
- * @returns Transaction receipt
+ * @returns Array of results with disbursement/refund details
  */
 export async function checkPayDate(
   circleIds: number[]
-) {
+): Promise<PayDateCheckResult[]> {
   // Lazy load SDK modules
   const {
     ContractExecuteTransaction,
@@ -142,6 +233,9 @@ export async function checkPayDate(
     const client = await getHederaClient();
     const contractId = ContractId.fromString(CONTRACT_ID);
     
+    // Get timestamp before transaction to identify new payments
+    const beforeTimestamp = Math.floor(Date.now() / 1000) - 60; // 1 minute buffer
+    
     const params = new ContractFunctionParameters();
     
     // Add uint array - Hedera SDK requires adding uints individually
@@ -157,9 +251,80 @@ export async function checkPayDate(
 
     const response = await transaction.execute(client);
     const receipt = await response.getReceipt(client);
+    
+    // Get transaction record for timestamp
+    const record = await response.getRecord(client);
+    const timestamp = record.consensusTimestamp?.toDate() || new Date();
+    const txId = response.transactionId.toString();
+    
+    // Wait a moment for transaction to be processed
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Query contract for new payments to determine what happened
+    const newPayments = await getNewPayments(client, contractId, beforeTimestamp);
+    
+    // Group payments by circleId and determine if disbursement or refund
+    const results: PayDateCheckResult[] = [];
+    const paymentsByCircle = new Map<number, typeof newPayments>();
+    
+    for (const payment of newPayments) {
+      if (!paymentsByCircle.has(payment.circleId)) {
+        paymentsByCircle.set(payment.circleId, []);
+      }
+      paymentsByCircle.get(payment.circleId)!.push(payment);
+    }
+    
+    // Create results for each circle
+    for (const circleId of circleIds) {
+      const payments = paymentsByCircle.get(circleId) || [];
+      
+      // If we got payments, it was either disbursement or refund
+      // Disbursement: 1 payment with large amount (total pool = amount * members.length)
+      // Refund: multiple payments (one per member with their individual balances)
+      const disbursements: DisbursementResult[] = [];
+      const refunds: RefundResult[] = [];
+      
+      if (payments.length > 0) {
+        // Heuristic: 
+        // - 1 payment = likely disbursement (single recipient gets pool)
+        // - Multiple payments = likely refunds (each member gets their balance back)
+        
+        if (payments.length === 1) {
+          // Single payment = disbursement
+          const payment = payments[0];
+          disbursements.push({
+            circleId,
+            recipient: payment.receiver,
+            amount: payment.amount,
+            timestamp: new Date(payment.timestamp * 1000),
+            type: "disbursement",
+          });
+        } else {
+          // Multiple payments = refunds (one per member)
+          for (const payment of payments) {
+            refunds.push({
+              circleId,
+              member: payment.receiver,
+              amount: payment.amount,
+              timestamp: new Date(payment.timestamp * 1000),
+              type: "refund",
+            });
+          }
+        }
+      }
+      
+      results.push({
+        circleId,
+        wasDisbursed: disbursements.length > 0,
+        disbursements: disbursements.length > 0 ? disbursements : undefined,
+        refunds: refunds.length > 0 ? refunds : undefined,
+        transactionId: txId,
+        timestamp,
+      });
+    }
 
     console.log(`✅ Checked pay dates for ${circleIds.length} circles`);
-    return receipt;
+    return results;
   } catch (error: any) {
     console.error("Error checking pay dates:", error);
     throw new Error(`Failed to check pay dates: ${error.message}`);

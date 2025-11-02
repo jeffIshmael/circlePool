@@ -49,7 +49,7 @@ export default function Home() {
                   Create a Circle
                   <span className="ml-2">
                     {" "}
-                    <ArrowUpRight />{" "}
+                    <ArrowRight />{" "}
                   </span>
                 </button>
               </div>

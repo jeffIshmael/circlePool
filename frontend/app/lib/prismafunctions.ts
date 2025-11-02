@@ -93,6 +93,14 @@ export const getCircleBySlug = async (slug: string) => {
   return circle;
 };
 
+// get circle by id
+export const getCircleById = async (id: number) => {
+  const circle = await prisma.circle.findUnique({
+    where: { id },
+  });
+  return circle;
+};
+
 // register user
 export const registerUser = async (
   userName: string | null,
@@ -468,4 +476,166 @@ export const updateUserPaymentToCircle = async (userAddress: string, circleId: n
     throw error;
   }
 };
-  
+
+// function to notify all users of a circle
+export const notifyAllUsersOfCircle = async (slug: string, message: string) => {
+  try {
+    const circle = await getCircleBySlug(slug);
+    if (!circle) {
+      throw new Error("Circle not found");
+    }
+    const users = circle.members.map((member: any) => member.user);
+    for (const user of users) {
+      await prisma.notification.create({
+        data: {
+          userId: user.id,
+          circleId: circle.id,
+          message: message,
+        },
+      });
+    }
+    return true;
+  }
+  catch (error) {
+    console.error(error);
+    throw error;
+  }
+}
+
+
+// function to set circle as started and set the payout order
+export const setCircleAsStartedAndSetPayoutOrder = async (circleId: number, payoutOrder: string) => {
+  try {
+    const circle = await prisma.circle.update({
+      where: { id: circleId },
+      data: { started: true, payOutOrder: payoutOrder },
+    });
+    if (!circle) {
+      throw new Error("Failed to set circle as started and set the payout order");
+    }
+    // notify users that the circle has started
+    const allUsersNotified = await notifyAllUsersOfCircle(circle.slug, `Circle ${circle.name} has started. The payout order has been set.`);
+    return circle;
+  }
+  catch (error) {
+    console.error(error);
+    throw error;
+  }
+}
+
+// function to create a payout to a user
+
+export const createPayoutToUser = async (circleId: number, receiver: string, amount: number, txHash: string, timestamp: Date) => {
+  try {
+    const circle = await getCircleById(circleId);
+    if (!circle) {
+      throw new Error("Circle not found");
+    }
+    const payout = await prisma.payOut.create({
+      data: {
+        userId: circle.adminId,
+        circleId: circleId,
+        amount: amount,
+        txHash: txHash,
+        receiver: receiver,
+        doneAt: timestamp,
+      },
+    });
+    if (!payout) {
+      throw new Error("Failed to create payout");
+    }
+    return payout;
+  }
+  catch (error) {
+    console.error(error);
+    throw error;
+  }
+}
+// disbursment context
+// if it was a disburse, we update the payout Order, notify all users, update the round and cycle , paydate
+export const updateDisbursementContext = async (circleId: number, receiver: string, amount: number, txHash: string, timestamp: Date) => {
+  try {
+   const circle = await getCircleById(circleId);
+   if (!circle) {
+    throw new Error("Circle not found");
+   }
+   // update the payout order
+   const payoutOrder = JSON.parse(circle.payOutOrder as string);
+   const newPayoutOrder = payoutOrder.map((item: any) => {
+     if (item.userAddress === receiver) {
+       // Mark receiver as paid
+       return { ...item, paid: true };
+     } else if (!item.paid) {
+       // Increase payDate for unpaid members by cycleTime
+       return { 
+         ...item, 
+         payDate: new Date(item.payDate.getTime() + circle.cycleTime * 24 * 60 * 60 * 1000) 
+       };
+     }
+     // Already paid members remain unchanged
+     return item;
+   });
+   const newPayoutOrderString = JSON.stringify(newPayoutOrder);
+   // update the round and cycle
+   const newCycle = circle.round == circle?.payOutOrder?.length ?circle.cycle + 1 : circle.cycle;
+   const newRound =  circle.round == circle?.payOutOrder?.length  ? 1 : circle.round + 1;
+ 
+   const newPayDate = new Date(circle.payDate.getTime() + circle.cycleTime * 24 * 60 * 60 * 1000);
+   const updatedCircle = await prisma.circle.update({
+    where: { id: circleId },
+    data: { round: newRound, cycle: newCycle, payDate: newPayDate, payOutOrder: newPayoutOrderString },
+   });
+   if (!updatedCircle) {
+    throw new Error("Failed to update disbursement context");
+   }
+   // create a payout to the user
+   const payout = await createPayoutToUser(circleId, receiver, amount, txHash, timestamp);
+   if (!payout) {
+    throw new Error("Failed to create payout");
+   }
+   // notify all users
+   await notifyAllUsersOfCircle(circle.slug, `Circle ${circle.name} has disbursed ${amount} HBAR to ${receiver} for the ${circle.round} round of the ${circle.cycle} cycle.`);
+   
+   return updatedCircle;
+  }
+  catch (error) {
+    console.error(error);
+    throw error;
+  }
+}
+
+// if it was a refund, we update the payout Order, notify all users, update the round and cycle , paydate
+export const updateRefundContext = async (circleId: number) => {
+  try {
+    const circle = await getCircleById(circleId);
+    if (!circle) {
+      throw new Error("Circle not found");
+    }
+    const payoutOrder = JSON.parse(circle.payOutOrder as string);
+    // Update payDate for the receiver and all unpaid members
+    const newPayoutOrder = payoutOrder.map((item: any) => {
+      if (!item.paid) {
+        return { ...item, payDate: new Date(item.payDate.getTime() + circle.cycleTime * 24 * 60 * 60 * 1000) };
+      }
+      return item;
+    });
+    const newPayoutOrderString = JSON.stringify(newPayoutOrder);
+    const updatedCircle = await prisma.circle.update({
+      where: {id: circleId},
+      data:{
+        payOutOrder: newPayoutOrderString,
+        payDate: new Date(circle.payDate.getTime() + circle.cycleTime * 24 * 60 * 60 * 1000),
+      }
+    })
+    if (!updatedCircle) {
+      throw new Error("Failed to update refund context");
+    }
+    // notify all users
+    await notifyAllUsersOfCircle(circle.slug, `Your balance from circle ${circle.name} has been refunded for the ${circle.round} round of the ${circle.cycle} cycle. This is due to the fact that not all members paid their contributions.`);
+    return updatedCircle;
+  }
+  catch (error) {
+    console.error(error);
+    throw error;
+  }
+}
