@@ -78,6 +78,8 @@ export default function CircleDetail({
       status: string;
       balance: string;
       loan: string;
+      payDate?: string;
+      amountPaid?: string;
     }>
   >([]);
   const [isMember, setIsMember] = useState(false);
@@ -123,23 +125,129 @@ export default function CircleDetail({
         const membersOnChain = await getMembersOnchainWithBalances(
           chainCircleId
         );
-        const memberList = (membersOnChain.members || []).map(
-          (m: any, idx: number) => {
-            const balH = ((m.balance || 0) / 100_000_000).toFixed(2) + " HBAR";
-            const loanH = ((m.loan || 0) / 100_000_000).toFixed(2) + " HBAR";
-            const label =
-              accountId && m.address === accountId ? "You" : m.address;
-            const status = (m.balance || 0) > 0 ? "Active" : "Pending";
-            return {
-              position: idx + 1,
-              address: m.address,
-              label,
-              status,
-              balance: balH,
-              loan: loanH,
-            };
+        
+        // Create a map of on-chain member data by address
+        const onChainMemberMap = new Map<string, any>();
+        (membersOnChain.members || []).forEach((m: any) => {
+          onChainMemberMap.set(m.address, m);
+        });
+
+        // Create a map of payout amounts by receiver address
+        const payoutMap = new Map<string, bigint>();
+        (prismaCircle.payOuts || []).forEach((payout: any) => {
+          if (payout.receiver) {
+            const existing = payoutMap.get(payout.receiver) || BigInt(0);
+            payoutMap.set(payout.receiver, existing + BigInt(payout.amount));
           }
-        );
+        });
+
+        let memberList: Array<{
+          position: number;
+          address: string;
+          label: string;
+          status: string;
+          balance: string;
+          loan: string;
+          payDate?: string;
+          amountPaid?: string;
+        }> = [];
+
+        const started = !!prismaCircle.started;
+        
+        if (started && prismaCircle.payOutOrder) {
+          // Use payout order when circle has started
+          try {
+            const payoutOrder: Array<{
+              userAddress: string;
+              payDate: string;
+              paid: boolean;
+            }> = JSON.parse(prismaCircle.payOutOrder as string);
+
+            memberList = payoutOrder.map((item: any, idx: number) => {
+              const onChainData = onChainMemberMap.get(item.userAddress) || {
+                balance: 0,
+                loan: 0,
+              };
+              
+              const balH =
+                ((onChainData.balance || 0) / 100_000_000).toFixed(2) + " HBAR";
+              const loanH =
+                ((onChainData.loan || 0) / 100_000_000).toFixed(2) + " HBAR";
+              
+              const label =
+                accountId && item.userAddress === accountId
+                  ? "You"
+                  : item.userAddress;
+              
+              const status = (onChainData.balance || 0) > 0 ? "Active" : "Pending";
+              
+              // Format payDate
+              const payDateStr = mounted
+                ? formatDateForDisplay(new Date(item.payDate))
+                : "Loading...";
+              
+              // Get amount paid if this member has been paid
+              let amountPaidStr: string | undefined;
+              if (item.paid) {
+                const totalPaid = payoutMap.get(item.userAddress);
+                if (totalPaid) {
+                  amountPaidStr =
+                    (Number(totalPaid) / 100_000_000).toFixed(2) + " HBAR";
+                }
+              }
+
+              return {
+                position: idx + 1,
+                address: item.userAddress,
+                label,
+                status,
+                balance: balH,
+                loan: loanH,
+                payDate: payDateStr,
+                amountPaid: amountPaidStr,
+              };
+            });
+          } catch (parseError) {
+            console.error("Error parsing payout order:", parseError);
+            // Fallback to original member list if parsing fails
+            memberList = (membersOnChain.members || []).map(
+              (m: any, idx: number) => {
+                const balH = ((m.balance || 0) / 100_000_000).toFixed(2) + " HBAR";
+                const loanH = ((m.loan || 0) / 100_000_000).toFixed(2) + " HBAR";
+                const label =
+                  accountId && m.address === accountId ? "You" : m.address;
+                const status = (m.balance || 0) > 0 ? "Active" : "Pending";
+                return {
+                  position: idx + 1,
+                  address: m.address,
+                  label,
+                  status,
+                  balance: balH,
+                  loan: loanH,
+                };
+              }
+            );
+          }
+        } else {
+          // Use members list when circle hasn't started
+          memberList = (membersOnChain.members || []).map(
+            (m: any, idx: number) => {
+              const balH = ((m.balance || 0) / 100_000_000).toFixed(2) + " HBAR";
+              const loanH = ((m.loan || 0) / 100_000_000).toFixed(2) + " HBAR";
+              const label =
+                accountId && m.address === accountId ? "You" : m.address;
+              const status = (m.balance || 0) > 0 ? "Active" : "Pending";
+              return {
+                position: idx + 1,
+                address: m.address,
+                label,
+                status,
+                balance: balH,
+                loan: loanH,
+              };
+            }
+          );
+        }
 
         const amountNum =
           (Number(prismaCircle.amount || 0) *
@@ -150,7 +258,6 @@ export default function CircleDetail({
           : 0;
         const nextPayoutHbar = (amountNum * membersCount).toFixed(2) + " HBAR";
 
-        const started = !!prismaCircle.started;
         const dateSource = started
           ? new Date(prismaCircle.payDate)
           : new Date(prismaCircle.startDate);
@@ -212,23 +319,129 @@ export default function CircleDetail({
           const chainCircleId = Number(prismaCircle.blockchainId);
           const onChain = await getCircleById(chainCircleId);
           const membersOnChain = await getMembersOnchainWithBalances(chainCircleId);
-          const memberList = (membersOnChain.members || []).map(
-            (m: any, idx: number) => {
-              const balH = ((m.balance || 0) / 100_000_000).toFixed(2) + " HBAR";
-              const loanH = ((m.loan || 0) / 100_000_000).toFixed(2) + " HBAR";
-              const label =
-                accountId && m.address === accountId ? "You" : m.address;
-              const status = (m.balance || 0) > 0 ? "Active" : "Pending";
-              return {
-                position: idx + 1,
-                address: m.address,
-                label,
-                status,
-                balance: balH,
-                loan: loanH,
-              };
+          
+          // Create a map of on-chain member data by address
+          const onChainMemberMap = new Map<string, any>();
+          (membersOnChain.members || []).forEach((m: any) => {
+            onChainMemberMap.set(m.address, m);
+          });
+
+          // Create a map of payout amounts by receiver address
+          const payoutMap = new Map<string, bigint>();
+          (prismaCircle.payOuts || []).forEach((payout: any) => {
+            if (payout.receiver) {
+              const existing = payoutMap.get(payout.receiver) || BigInt(0);
+              payoutMap.set(payout.receiver, existing + BigInt(payout.amount));
             }
-          );
+          });
+
+          const started = !!prismaCircle.started;
+          let memberList: Array<{
+            position: number;
+            address: string;
+            label: string;
+            status: string;
+            balance: string;
+            loan: string;
+            payDate?: string;
+            amountPaid?: string;
+          }> = [];
+
+          if (started && prismaCircle.payOutOrder) {
+            // Use payout order when circle has started
+            try {
+              const payoutOrder: Array<{
+                userAddress: string;
+                payDate: string;
+                paid: boolean;
+              }> = JSON.parse(prismaCircle.payOutOrder as string);
+
+              memberList = payoutOrder.map((item: any, idx: number) => {
+                const onChainData = onChainMemberMap.get(item.userAddress) || {
+                  balance: 0,
+                  loan: 0,
+                };
+                
+                const balH =
+                  ((onChainData.balance || 0) / 100_000_000).toFixed(2) + " HBAR";
+                const loanH =
+                  ((onChainData.loan || 0) / 100_000_000).toFixed(2) + " HBAR";
+                
+                const label =
+                  accountId && item.userAddress === accountId
+                    ? "You"
+                    : item.userAddress;
+                
+                const status = (onChainData.balance || 0) > 0 ? "Active" : "Pending";
+                
+                // Format payDate
+                const payDateStr = mounted
+                  ? formatDateForDisplay(new Date(item.payDate))
+                  : "Loading...";
+                
+                // Get amount paid if this member has been paid
+                let amountPaidStr: string | undefined;
+                if (item.paid) {
+                  const totalPaid = payoutMap.get(item.userAddress);
+                  if (totalPaid) {
+                    amountPaidStr =
+                      (Number(totalPaid) / 100_000_000).toFixed(2) + " HBAR";
+                  }
+                }
+
+                return {
+                  position: idx + 1,
+                  address: item.userAddress,
+                  label,
+                  status,
+                  balance: balH,
+                  loan: loanH,
+                  payDate: payDateStr,
+                  amountPaid: amountPaidStr,
+                };
+              });
+            } catch (parseError) {
+              console.error("Error parsing payout order:", parseError);
+              // Fallback to original member list if parsing fails
+              memberList = (membersOnChain.members || []).map(
+                (m: any, idx: number) => {
+                  const balH = ((m.balance || 0) / 100_000_000).toFixed(2) + " HBAR";
+                  const loanH = ((m.loan || 0) / 100_000_000).toFixed(2) + " HBAR";
+                  const label =
+                    accountId && m.address === accountId ? "You" : m.address;
+                  const status = (m.balance || 0) > 0 ? "Active" : "Pending";
+                  return {
+                    position: idx + 1,
+                    address: m.address,
+                    label,
+                    status,
+                    balance: balH,
+                    loan: loanH,
+                  };
+                }
+              );
+            }
+          } else {
+            // Use members list when circle hasn't started
+            memberList = (membersOnChain.members || []).map(
+              (m: any, idx: number) => {
+                const balH = ((m.balance || 0) / 100_000_000).toFixed(2) + " HBAR";
+                const loanH = ((m.loan || 0) / 100_000_000).toFixed(2) + " HBAR";
+                const label =
+                  accountId && m.address === accountId ? "You" : m.address;
+                const status = (m.balance || 0) > 0 ? "Active" : "Pending";
+                return {
+                  position: idx + 1,
+                  address: m.address,
+                  label,
+                  status,
+                  balance: balH,
+                  loan: loanH,
+                };
+              }
+            );
+          }
+          
           const loanableHbar =
             ((onChain.loanableAmount || 0) / 100_000_000).toFixed(2) + " HBAR";
           setCircle((prev) => ({ ...prev, loanableAmount: loanableHbar }));
@@ -554,7 +767,14 @@ export default function CircleDetail({
                 <table className="w-full border-collapse">
                   <thead className="bg-primary-lavender sticky top-0">
                     <tr>
-                      {["#", "Member", "Status", "Balance", "Loan"].map((col) => (
+                      {[
+                        "#",
+                        "Member",
+                        "Status",
+                        "Balance",
+                        "Loan",
+                        ...(circle.started ? ["Pay Date", "Amount Paid"] : []),
+                      ].map((col) => (
                         <th
                           key={col}
                           className="px-6 py-4 text-left text-sm font-semibold text-primary-dark"
@@ -587,6 +807,22 @@ export default function CircleDetail({
                         </td>
                         <td className="px-6 py-4 text-sm">{m.balance}</td>
                         <td className="px-6 py-4 text-sm">{m.loan}</td>
+                        {circle.started && (
+                          <>
+                            <td className="px-6 py-4 text-sm text-primary-slate">
+                              {m.payDate || "N/A"}
+                            </td>
+                            <td className="px-6 py-4 text-sm">
+                              {m.amountPaid ? (
+                                <span className="text-green-600 font-semibold">
+                                  {m.amountPaid}
+                                </span>
+                              ) : (
+                                <span className="text-primary-slate">-</span>
+                              )}
+                            </td>
+                          </>
+                        )}
                       </tr>
                     ))}
                   </tbody>

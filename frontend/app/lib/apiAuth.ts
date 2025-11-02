@@ -10,6 +10,9 @@ import { NextRequest } from "next/server";
 /**
  * Validates API key from request headers
  * Set API_KEY environment variable to protect your endpoints
+ * Supports both:
+ * - x-api-key: YOUR_API_KEY (custom header)
+ * - Authorization: Bearer YOUR_API_KEY (standard format)
  */
 export function validateApiKey(request: NextRequest): boolean {
   const apiKey = process.env.NEXT_PUBLIC_API_KEY;
@@ -20,8 +23,16 @@ export function validateApiKey(request: NextRequest): boolean {
     return true; // Allow in development
   }
 
-  // Get API key from headers
-  const providedKey = request.headers.get("x-api-key");
+  // Try x-api-key header first (custom header)
+  let providedKey = request.headers.get("x-api-key");
+
+  // If not found, try Authorization: Bearer format
+  if (!providedKey) {
+    const authHeader = request.headers.get("authorization");
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      providedKey = authHeader.substring(7); // Remove "Bearer " prefix
+    }
+  }
 
   if (!providedKey) {
     return false;
