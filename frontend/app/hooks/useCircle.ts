@@ -44,19 +44,23 @@ export function useCircle() {
     setLoading(true);
     setError(null);
     try {
-      const tx = await executeContractFunction(
+      const result = await executeContractFunction(
         accountId,
         CONTRACT_ID,
         "registerCircle",
         params
       );
-      const result = await tx;
+      
+      // Verify the result is successful
+      if (!result || !result.success) {
+        throw new Error("Circle creation failed on blockchain");
+      }
+      
       return result;
     } catch (error) {
-      setError(
-        error instanceof Error ? error.message : "An unknown error occurred"
-      );
-      return error;
+      const errorMessage = error instanceof Error ? error.message : "An unknown error occurred";
+      setError(errorMessage);
+      throw error; // Re-throw to stop execution
     } finally {
       setLoading(false);
     }
@@ -78,21 +82,25 @@ export function useCircle() {
     setLoading(true);
     setError(null);
     try {
-      const tx = await executeContractFunction(
+      const result = await executeContractFunction(
         accountId,
         CONTRACT_ID,
         "depositCash",
         params
       );
-      const result = await tx;
+      
+      // Verify the result is successful
+      if (!result || !result.success) {
+        throw new Error("Deposit failed on blockchain");
+      }
+      
       console.log("DepositCash result:", result);
       return result;
     } catch (error) {
-      setError(
-        error instanceof Error ? error.message : "An unknown error occurred"
-      );
+      const errorMessage = error instanceof Error ? error.message : "An unknown error occurred";
+      setError(errorMessage);
       console.error("DepositCash error:", error);
-      return error;
+      throw error; // Re-throw to stop execution
     } finally {
       setLoading(false);
     }

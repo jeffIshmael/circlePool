@@ -8,6 +8,10 @@ const nextConfig = {
     optimizePackageImports: ['@hashgraph/sdk'],
   },
 
+  // Note: We don't transpile @hashgraph/hedera-wallet-connect to avoid including Reown adapter
+  // We only use the dapp connector which is imported directly from dist/lib/dapp
+  // transpilePackages: ['@hashgraph/hedera-wallet-connect'], // Disabled to avoid Reown adapter issues
+
   // 🔹 Prevent browser caching of Next.js static chunks
   async headers() {
     return [
@@ -43,16 +47,28 @@ const nextConfig = {
       };
     }
 
+    // Ignore the problematic Reown adapter parts of @hashgraph/hedera-wallet-connect
+    // We only use the dapp connector which doesn't depend on Reown adapter
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      // Prevent importing the Reown adapter by aliasing problematic imports
+      '@hashgraph/hedera-wallet-connect/dist/reown': false,
+      '@hashgraph/hedera-wallet-connect/dist/reown/adapter': false,
+      '@hashgraph/hedera-wallet-connect/dist/reown/utils': false,
+    };
+
     return config;
   },
 
-  // 🔹 Exclude heavy SDKs from output tracing
-  outputFileTracingExcludes: {
-    '*': [
-      'node_modules/@hashgraph/sdk/**',
-      'node_modules/@walletconnect/**',
-    ],
-  },
+      // 🔹 Exclude heavy SDKs from output tracing
+      outputFileTracingExcludes: {
+        '*': [
+          'node_modules/@hashgraph/sdk/**',
+          'node_modules/@hashgraph/hedera-wallet-connect/**',
+          'node_modules/@reown/**',
+          'node_modules/@walletconnect/**',
+        ],
+      },
 };
 
 module.exports = nextConfig;

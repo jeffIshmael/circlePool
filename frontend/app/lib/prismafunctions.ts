@@ -3,7 +3,29 @@
 
 import { PrismaClient } from "@prisma/client";
 
-const prisma = new PrismaClient();
+// Create a singleton Prisma Client instance for Next.js
+// This prevents multiple instances during development hot-reloads and production
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient | undefined;
+};
+
+const prisma =
+  globalForPrisma.prisma ??
+  new PrismaClient({
+    log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
+  });
+
+// Store in global to reuse across hot-reloads (dev) and requests (prod)
+if (!globalForPrisma.prisma) {
+  globalForPrisma.prisma = prisma;
+}
+
+// Ensure proper disconnection on shutdown
+if (typeof process !== "undefined") {
+  process.on("beforeExit", async () => {
+    await prisma.$disconnect();
+  });
+}
 
 export const getCircles = async () => {
   const circles = await prisma.circle.findMany({

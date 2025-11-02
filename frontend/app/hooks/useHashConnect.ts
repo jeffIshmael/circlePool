@@ -16,7 +16,7 @@ import {
   connectWallet,
   disconnectWallet,
   getConnectedAccountIds,
-  getSession,
+  getDAppConnector,
 } from '../services/walletConnect';
 
 export function useHashConnect() {
@@ -31,9 +31,9 @@ export function useHashConnect() {
 
         await initializeWalletConnect();
 
-        // Check for existing session
-        const existingSession = getSession();
-        if (existingSession) {
+        // Check for existing connection
+        const connector = getDAppConnector();
+        if (connector && connector.signers.length > 0) {
           const accountIds = await getConnectedAccountIds();
           if (accountIds && accountIds.length > 0) {
             dispatch(setConnected({

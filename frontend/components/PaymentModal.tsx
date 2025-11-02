@@ -100,7 +100,17 @@ export default function PaymentModal({
         result?.transactionId?.toString() || "",
         "Payment to circle"
       );
-      toast.success(`Payment of ${paymentAmount} HBAR submitted successfully!`);
+      const transactionId = result?.transactionId?.toString();
+      const explorerUrl = `https://hashscan.io/testnet/transaction/${transactionId}`;
+      
+      toast.success("Payment submitted successfully!", {
+        description: `${paymentAmount} HBAR has been sent to ${circleName}.`,
+        action: transactionId ? {
+          label: "View Transaction",
+          onClick: () => window.open(explorerUrl, "_blank"),
+        } : undefined,
+        duration: 5000,
+      });
       setPaymentAmount("");
       onSuccess();
       onClose();

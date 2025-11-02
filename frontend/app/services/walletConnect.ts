@@ -1,63 +1,66 @@
 "use client";
 
 /**
- * WalletConnect Service - Direct WalletConnect integration with @hashgraph/sdk
- * 
- * This replaces HashConnect to eliminate duplicate bundling issues.
- * Uses @hashgraph/sdk directly for transactions and WalletConnect for wallet connections.
- * 
- * Benefits:
- * - No duplicate @hashgraph/sdk bundling (HashConnect bundled it internally)
- * - Industry-standard WalletConnect protocol
- * - Better compatibility with modern Hedera wallets (HashPack, Blade, etc.)
+ * WalletConnect Service - Using @hashgraph/hedera-wallet-connect (Official Hedera wrapper)
  */
 
-import type { SessionTypes } from "@walletconnect/types";
-import { SignClient } from "@walletconnect/sign-client";
-import { WalletConnectModal } from "@walletconnect/modal";
-import {
-  AccountId,
-  Client,
-  ContractExecuteTransaction,
-  ContractFunctionParameters,
-  Hbar,
-  LedgerId,
-  TransactionId,
-} from "@hashgraph/sdk";
+// DAppConnector will be loaded dynamically
 
-// WalletConnect instance
-let signClientInstance: Awaited<ReturnType<typeof SignClient.init>> | null = null;
-let walletConnectModal: WalletConnectModal | null = null;
-let session: SessionTypes.Struct | null = null;
-let initPromise: Promise<Awaited<ReturnType<typeof SignClient.init>>> | null = null;
-
-const PROJECT_ID = "bfa190dbe93fcf30377b932b31129d05"; // Your WalletConnect Project ID
-// Hedera chain IDs in CAIP-2 format
-const HEDERA_TESTNET = "hedera:testnet";
-const HEDERA_MAINNET = "hedera:mainnet";
-const CHAIN_ID = HEDERA_TESTNET; // Use HEDERA_MAINNET for mainnet
-
-// Hedera JSON-RPC methods (from @hashgraph/hedera-wallet-connect spec)
+// Define constants manually to avoid dependency issues
 const HederaJsonRpcMethod = {
   SendTransaction: "hedera_sendTransaction",
   SignTransaction: "hedera_signTransaction",
   SignAndReturnTransaction: "hedera_signAndReturnTransaction",
+  SignAndExecuteTransaction: "hedera_signAndExecuteTransaction", // Required for executeWithSigner
   SignMessage: "hedera_signMessage",
   GetAccountInfo: "hedera_getAccountInfo",
   GetAccountBalance: "hedera_getAccountBalance",
 };
 
+const HederaChainId = {
+  Testnet: "hedera:testnet",
+  Mainnet: "hedera:mainnet",
+};
+
+const HederaSessionEvent = {
+  ChainChanged: "chainChanged",
+  AccountsChanged: "accountsChanged",
+};
+import {
+  AccountId,
+  LedgerId,
+  ContractExecuteTransaction,
+  ContractFunctionParameters,
+  Hbar,
+  Signer,
+} from "@hashgraph/sdk";
+
+// DAppConnector class and instance types
+type DAppConnectorType = any; // Type will be inferred from the imported module
+let DAppConnector: any = null; // Class constructor stored here after dynamic import
+let dAppConnector: any = null; // Instance
+let initPromise: Promise<void> | null = null;
+
+const PROJECT_ID = "bfa190dbe93fcf30377b932b31129d05";
+const APP_METADATA = {
+  name: "CirclePool",
+  description: "CirclePool - Hedera Hashgraph DApp",
+  url: typeof window !== "undefined" ? window.location.origin : "https://circle-pool.vercel.app",
+  icons: [
+    typeof window !== "undefined"
+      ? window.location.origin + "/favicon.ico"
+      : "/favicon.ico",
+  ],
+};
+
 /**
- * Initialize WalletConnect Sign Client
- * Uses promise cache to prevent multiple initializations
+ * Initialize Hedera WalletConnect
  */
 export async function initializeWalletConnect() {
-  // Return existing instance if already initialized
-  if (signClientInstance) {
-    return signClientInstance;
+  if (dAppConnector) {
+    return;
   }
 
-  // Return existing promise if initialization is in progress
   if (initPromise) {
     return initPromise;
   }
@@ -66,37 +69,41 @@ export async function initializeWalletConnect() {
     throw new Error("WalletConnect can only be initialized on the client side");
   }
 
-  // Create initialization promise
   initPromise = (async () => {
-    signClientInstance = await SignClient.init({
-      projectId: PROJECT_ID,
-      metadata: {
-        name: "CirclePool",
-        description: "CirclePool - Hedera Hashgraph DApp",
-        url: typeof window !== "undefined" ? window.location.origin : "https://circle-pool.vercel.app",
-        icons: [
-          typeof window !== "undefined"
-            ? window.location.origin + "/favicon.ico"
-            : "/favicon.ico",
-        ],
-      },
-    });
-
-    // Initialize WalletConnect Modal (only once)
-    if (!walletConnectModal) {
-      walletConnectModal = new WalletConnectModal({
-        projectId: PROJECT_ID,
-        chains: [CHAIN_ID],
-      });
+    // Dynamic import to avoid bundling issues
+    // IMPORTANT: We import directly from dist/lib/dapp to avoid the Reown adapter
+    // which has compatibility issues with @reown/appkit versions
+    if (!DAppConnector) {
+      try {
+        // Use the specific dapp path - this avoids the problematic Reown adapter imports
+        // @ts-ignore - Dynamic import may not resolve types correctly at build time
+        const hederaWalletConnect = await import("@hashgraph/hedera-wallet-connect/dist/lib/dapp/index.js");
+        DAppConnector = hederaWalletConnect.DAppConnector;
+      } catch (error) {
+        console.error("Failed to import DAppConnector:", error);
+        throw new Error("Failed to import DAppConnector from @hashgraph/hedera-wallet-connect/dist/lib/dapp");
+      }
     }
-
-    // Restore existing session
-    const sessions = signClientInstance.session.getAll();
-    if (sessions.length > 0) {
-      session = sessions[0];
+    
+    if (!DAppConnector) {
+      throw new Error("Failed to import DAppConnector from @hashgraph/hedera-wallet-connect");
     }
+    
+    // Create DAppConnector
+    const network = LedgerId.TESTNET; // Use LedgerId.MAINNET for production
+    dAppConnector = new DAppConnector(
+      APP_METADATA,
+      network,
+      PROJECT_ID,
+      Object.values(HederaJsonRpcMethod),
+      [HederaSessionEvent.ChainChanged, HederaSessionEvent.AccountsChanged],
+      [HederaChainId.Testnet] // Use HederaChainId.Mainnet for production
+    );
 
-    return signClientInstance;
+    // Initialize the connector
+    await dAppConnector.init({ logger: "error" });
+
+    console.log("✅ Hedera WalletConnect initialized");
   })();
 
   return initPromise;
@@ -106,19 +113,12 @@ export async function initializeWalletConnect() {
  * Get connected account IDs
  */
 export async function getConnectedAccountIds(): Promise<AccountId[]> {
-  if (!session || !signClientInstance) {
+  if (!dAppConnector) {
     return [];
   }
 
-  const accounts = session.namespaces.hedera?.accounts || [];
-  return accounts.map((account) => {
-    // Account format: "hedera:testnet:0.0.123456" or "hedera:mainnet:0.0.123456"
-    const parts = account.split(":");
-    if (parts.length >= 3) {
-      return AccountId.fromString(parts[2]);
-    }
-    return AccountId.fromString(account);
-  });
+  const signers = dAppConnector.signers;
+  return signers.map((signer: Signer) => signer.getAccountId());
 }
 
 /**
@@ -126,44 +126,91 @@ export async function getConnectedAccountIds(): Promise<AccountId[]> {
  */
 export async function connectWallet(): Promise<void> {
   await initializeWalletConnect();
-  
-  if (!signClientInstance) {
-    throw new Error("WalletConnect not initialized");
+
+  if (!dAppConnector) {
+    throw new Error("DAppConnector not initialized");
   }
 
   try {
-    const { uri, approval } = await signClientInstance.connect({
-      requiredNamespaces: {
-        hedera: {
-          methods: [
-            HederaJsonRpcMethod.SendTransaction,
-            HederaJsonRpcMethod.SignTransaction,
-            HederaJsonRpcMethod.SignAndReturnTransaction,
-            HederaJsonRpcMethod.SignMessage,
-            HederaJsonRpcMethod.GetAccountInfo,
-            HederaJsonRpcMethod.GetAccountBalance,
-          ],
-          chains: [CHAIN_ID],
-          events: [],
-        },
-      },
-    });
-
-    if (uri && walletConnectModal) {
-      // Open WalletConnect modal for pairing
-      walletConnectModal.openModal({ uri });
+    // Disconnect any existing sessions first to ensure fresh connection with all methods
+    // This ensures new sessions include hedera_signAndExecuteTransaction
+    if (dAppConnector.signers.length > 0) {
+      console.log("Disconnecting existing session to refresh with new methods...");
+      await dAppConnector.disconnectAll();
     }
 
-    session = await approval();
-    
-    if (walletConnectModal) {
-      walletConnectModal.closeModal();
-    }
+    // Open modal to connect with all required methods
+    await dAppConnector.openModal();
+
+    console.log("✅ Wallet connected!");
+    const accounts = await getConnectedAccountIds();
+    console.log("Connected accounts:", accounts.map(a => a.toString()));
+    console.log("Supported methods:", Object.values(HederaJsonRpcMethod));
   } catch (error) {
-    if (walletConnectModal) {
-      walletConnectModal.closeModal();
-    }
+    console.error("Error connecting wallet:", error);
     throw error;
+  }
+}
+
+/**
+ * Check if the current session has all required methods
+ */
+export function hasRequiredMethods(): boolean {
+  if (!dAppConnector || !dAppConnector.walletConnectClient) {
+    return false;
+  }
+
+  try {
+    // Get the active session
+    const sessions = dAppConnector.walletConnectClient.session.getAll();
+    if (sessions.length === 0) {
+      return false;
+    }
+
+    // Check if the session includes the required method
+    const requiredMethod = HederaJsonRpcMethod.SignAndExecuteTransaction;
+    const session = sessions[0];
+    
+    // Check namespaces for the method
+    const namespaces = session?.namespaces;
+    if (!namespaces) {
+      return false;
+    }
+
+    // Check all namespaces for the required method
+    for (const namespace of Object.values(namespaces)) {
+      const ns = namespace as any; // Type assertion for WalletConnect namespace
+      if (ns?.methods && Array.isArray(ns.methods) && ns.methods.includes(requiredMethod)) {
+        return true;
+      }
+    }
+
+    return false;
+  } catch (error) {
+    console.error("Error checking session methods:", error);
+    return false;
+  }
+}
+
+/**
+ * Clear WalletConnect storage (forces complete reset)
+ */
+export function clearWalletConnectStorage(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    // Clear WalletConnect related storage
+    const keys = Object.keys(localStorage);
+    keys.forEach((key) => {
+      if (key.startsWith("wc@") || key.startsWith("walletconnect")) {
+        localStorage.removeItem(key);
+      }
+    });
+    console.log("✅ WalletConnect storage cleared");
+  } catch (error) {
+    console.error("Error clearing WalletConnect storage:", error);
   }
 }
 
@@ -171,160 +218,19 @@ export async function connectWallet(): Promise<void> {
  * Disconnect wallet
  */
 export async function disconnectWallet(): Promise<void> {
-  if (!session || !signClientInstance) {
+  if (!dAppConnector) {
     return;
   }
 
   try {
-    await signClientInstance.disconnect({
-      topic: session.topic,
-      reason: {
-        code: 6000,
-        message: "User disconnected",
-      },
-    });
+    await dAppConnector.disconnectAll();
+    // Also clear storage to remove stale sessions
+    clearWalletConnectStorage();
+    console.log("✅ Wallet disconnected");
   } catch (error) {
     console.error("Error disconnecting:", error);
-  } finally {
-    session = null;
-  }
-}
-
-/**
- * Sign a transaction
- */
-export async function signTransaction(
-  accountIdForSigning: string,
-  transaction: any
-): Promise<any> {
-  if (!session || !signClientInstance) {
-    throw new Error("No active wallet session");
-  }
-
-  const accountIds = await getConnectedAccountIds();
-  const accountId = AccountId.fromString(accountIdForSigning);
-  
-  if (!accountIds.some((id) => id.toString() === accountId.toString())) {
-    throw new Error(`Account ${accountIdForSigning} is not connected`);
-  }
-
-  // Convert transaction to bytes for signing
-  const transactionBytes = transaction.toBytes();
-  
-  // Convert to base64 string
-  let transactionBase64: string;
-  if (typeof Buffer !== 'undefined') {
-    transactionBase64 = Buffer.from(transactionBytes).toString('base64');
-  } else {
-    const binary = Array.from(transactionBytes, (byte: number) => String.fromCharCode(byte)).join('');
-    transactionBase64 = btoa(binary);
-  }
-
-  try {
-    const response = await signClientInstance.request({
-      topic: session.topic,
-      chainId: CHAIN_ID,
-      request: {
-        method: HederaJsonRpcMethod.SignAndReturnTransaction,
-        params: {
-          transaction: transactionBase64, // Base64 string
-          accountId: accountId.toString(),
-        },
-      },
-    });
-
-    return response;
-  } catch (error) {
-    console.error("Error signing transaction:", error);
-    throw error;
-  }
-}
-
-/**
- * Execute a transaction
- */
-export async function executeTransaction(
-  accountIdForSigning: string,
-  transaction: any
-): Promise<any> {
-  if (!session || !signClientInstance) {
-    throw new Error("No active wallet session");
-  }
-
-  const accountIds = await getConnectedAccountIds();
-  const accountId = AccountId.fromString(accountIdForSigning);
-  
-  if (!accountIds.some((id) => id.toString() === accountId.toString())) {
-    throw new Error(`Account ${accountIdForSigning} is not connected`);
-  }
-
-  // Convert transaction to bytes
-  const transactionBytes = transaction.toBytes();
-  
-  // Convert to base64 string
-  let transactionBase64: string;
-  if (typeof Buffer !== 'undefined') {
-    transactionBase64 = Buffer.from(transactionBytes).toString('base64');
-  } else {
-    const binary = Array.from(transactionBytes, (byte: number) => String.fromCharCode(byte)).join('');
-    transactionBase64 = btoa(binary);
-  }
-
-  try {
-    const response = await signClientInstance.request({
-      topic: session.topic,
-      chainId: CHAIN_ID,
-      request: {
-        method: HederaJsonRpcMethod.SendTransaction,
-        params: {
-          transaction: transactionBase64, // Base64 string
-          accountId: accountId.toString(),
-        },
-      },
-    });
-
-    return response;
-  } catch (error) {
-    console.error("Error executing transaction:", error);
-    throw error;
-  }
-}
-
-/**
- * Sign messages
- */
-export async function signMessages(
-  accountIdForSigning: string,
-  message: string
-): Promise<any> {
-  if (!session || !signClientInstance) {
-    throw new Error("No active wallet session");
-  }
-
-  const accountIds = await getConnectedAccountIds();
-  const accountId = AccountId.fromString(accountIdForSigning);
-  
-  if (!accountIds.some((id) => id.toString() === accountId.toString())) {
-    throw new Error(`Account ${accountIdForSigning} is not connected`);
-  }
-
-  try {
-    const response = await signClientInstance.request({
-      topic: session.topic,
-      chainId: CHAIN_ID,
-      request: {
-        method: HederaJsonRpcMethod.SignMessage,
-        params: {
-          message,
-          accountId: accountId.toString(),
-        },
-      },
-    });
-
-    return response;
-  } catch (error) {
-    console.error("Error signing message:", error);
-    throw error;
+    // Still try to clear storage even if disconnect fails
+    clearWalletConnectStorage();
   }
 }
 
@@ -338,19 +244,22 @@ export async function executeContractFunction(
   functionParameters: any,
   gas: number = 500000
 ): Promise<any> {
-  if (!session || !signClientInstance) {
-    throw new Error("No active wallet session");
+  if (!dAppConnector) {
+    throw new Error("DAppConnector not initialized");
   }
 
   if (typeof window === "undefined") {
     throw new Error("This function can only be called on the client side");
   }
 
-  const accountIds = await getConnectedAccountIds();
+  // Get the signer for this account
   const accountId = AccountId.fromString(accountIdForSigning);
-  
-  if (!accountIds.some((id) => id.toString() === accountId.toString())) {
-    throw new Error(`Account ${accountIdForSigning} is not connected`);
+  const signer = dAppConnector.signers.find(
+    (s: Signer) => s.getAccountId().toString() === accountId.toString()
+  );
+
+  if (!signer) {
+    throw new Error(`No signer found for account ${accountIdForSigning}`);
   }
 
   // Build contract parameters
@@ -384,160 +293,124 @@ export async function executeContractFunction(
     throw new Error(`Unknown function name: ${functionName}`);
   }
 
-  // Create transaction
-  let transaction = new ContractExecuteTransaction()
-    .setContractId(contractId)
-    .setGas(gas)
-    .setFunction(functionName, contractParams);
-
-  if (functionName === "depositCash") {
-    transaction = transaction.setPayableAmount(
-      new Hbar(Number(functionParameters.amount) / 100000000)
+  // Check if session has required methods - if not, disconnect and require reconnect
+  if (!hasRequiredMethods()) {
+    console.warn("⚠️ Session missing required methods. Disconnecting...");
+    await disconnectWallet();
+    throw new Error(
+      'WalletConnect session is missing required methods. ' +
+      'Please disconnect and reconnect your wallet to enable transaction execution.'
     );
   }
 
-  transaction = transaction.setMaxTransactionFee(new Hbar(2));
+  try {
+    console.log("=== Building Transaction ===");
+    console.log("Contract ID:", contractId);
+    console.log("Function:", functionName);
+    console.log("Gas:", gas);
+    console.log("Signer Account:", signer.getAccountId().toString());
 
-  // CRITICAL: Set transaction ID with payer account before freezing
-  // The payer account ID must be set for the transaction to be frozen
-  transaction = transaction.setTransactionId(
-    TransactionId.generate(accountId)
+    // Set a node account ID based on network
+    // Testnet nodes: 0.0.3, 0.0.4, 0.0.5
+    // Mainnet nodes: 0.0.3, 0.0.4, 0.0.5 (same IDs but different network)
+    const network = dAppConnector?.network || LedgerId.TESTNET;
+    const isTestnet = network === LedgerId.TESTNET;
+    const nodeAccountId = AccountId.fromString("0.0.3"); // Works for both testnet and mainnet
+
+    // Build transaction using the signer
+    let transaction = await new ContractExecuteTransaction()
+      .setContractId(contractId)
+      .setGas(gas)
+      .setFunction(functionName, contractParams)
+      .setMaxTransactionFee(new Hbar(2))
+      .setNodeAccountIds([nodeAccountId]) // Set node account ID before freezing
+      .freezeWithSigner(signer);
+
+    // Add payable amount if needed
+    if (functionName === "depositCash") {
+      transaction = await new ContractExecuteTransaction()
+        .setContractId(contractId)
+        .setGas(gas)
+        .setFunction(functionName, contractParams)
+        .setPayableAmount(new Hbar(Number(functionParameters.amount) / 100000000))
+        .setMaxTransactionFee(new Hbar(2))
+        .setNodeAccountIds([nodeAccountId]) // Set node account ID before freezing
+        .freezeWithSigner(signer);
+    }
+
+    console.log("Transaction frozen with signer");
+
+    // Execute transaction with signer (this will prompt HashPack)
+    console.log("=== Executing Transaction with Signer ===");
+    const txResponse = await transaction.executeWithSigner(signer);
+
+    console.log("✅ Transaction executed");
+    console.log("Transaction ID:", txResponse.transactionId.toString());
+
+    // Get receipt
+    console.log("Getting receipt...");
+    const receipt = await txResponse.getReceiptWithSigner(signer);
+    
+    console.log("✅ Receipt received");
+    console.log("Status:", receipt.status.toString());
+
+    return {
+      success: true,
+      transactionId: txResponse.transactionId.toString(),
+      receipt,
+      transactionResponse: txResponse,
+    };
+  } catch (error: any) {
+    console.error("❌ Error executing contract function:", error);
+    console.error("Error message:", error?.message);
+    
+    // Check for missing method error - user needs to reconnect with new methods
+    if (error?.message?.includes('hedera_signAndExecuteTransaction') || 
+        error?.txError?.message?.includes('hedera_signAndExecuteTransaction')) {
+      throw new Error(
+        'WalletConnect session is missing required methods. ' +
+        'Please disconnect and reconnect your wallet to enable transaction execution.'
+      );
+    }
+    
+    // Provide helpful error messages
+    if (error?.message?.includes('User rejected') || error?.message?.includes('rejected')) {
+      throw new Error('Transaction rejected by user');
+    }
+    
+    if (error?.message?.includes('No signer')) {
+      throw new Error('Wallet not connected. Please reconnect.');
+    }
+    
+    throw error;
+  }
+}
+
+/**
+ * Sign messages
+ */
+export async function signMessages(
+  accountIdForSigning: string,
+  message: string
+): Promise<any> {
+  if (!dAppConnector) {
+    throw new Error("DAppConnector not initialized");
+  }
+
+  const accountId = AccountId.fromString(accountIdForSigning);
+  const signer = dAppConnector.signers.find(
+    (s: Signer) => s.getAccountId().toString() === accountId.toString()
   );
 
-  // CRITICAL: Transactions must be frozen with a client to set node account IDs
-  // Create a client without operator (network only) for freezing
-  const client = CHAIN_ID === HEDERA_TESTNET
-    ? Client.forTestnet()
-    : Client.forMainnet();
-  
-  // Freeze transaction with client (this sets node account IDs)
-  // The transactionId must be set before calling freezeWith
-  const frozenTransaction = await transaction.freezeWith(client);
-
-  // Execute via WalletConnect
-  // Convert transaction to bytes - try base64 format (most wallets expect this)
-  const transactionBytes = frozenTransaction.toBytes();
-  
-  // Convert to base64 string (Hedera WalletConnect typically expects base64)
-  let transactionBase64: string;
-  if (typeof Buffer !== 'undefined') {
-    transactionBase64 = Buffer.from(transactionBytes).toString('base64');
-  } else {
-    const binary = Array.from(transactionBytes, (byte: number) => String.fromCharCode(byte)).join('');
-    transactionBase64 = btoa(binary);
+  if (!signer) {
+    throw new Error(`No signer found for account ${accountIdForSigning}`);
   }
 
   try {
-    console.log("=== WalletConnect Transaction Request ===");
-    console.log("Method:", HederaJsonRpcMethod.SignAndReturnTransaction);
-    console.log("Chain ID:", CHAIN_ID);
-    console.log("Account ID:", accountId.toString());
-    console.log("Transaction (base64) length:", transactionBase64.length);
-    console.log("Session topic:", session.topic);
-    console.log("Session exists:", !!session);
-    console.log("Sign client exists:", !!signClientInstance);
-    
-    // Check if session supports the method
-    const supportedMethods = session.namespaces.hedera?.methods || [];
-    console.log("Supported methods:", supportedMethods);
-    console.log("Requested method supported:", supportedMethods.includes(HederaJsonRpcMethod.SignAndReturnTransaction));
-    
-    if (!supportedMethods.includes(HederaJsonRpcMethod.SignAndReturnTransaction)) {
-      console.warn("⚠️ Wallet does not support", HederaJsonRpcMethod.SignAndReturnTransaction);
-      console.warn("Available methods:", supportedMethods);
-      // Fallback to SendTransaction if SignAndReturnTransaction is not supported
-      if (supportedMethods.includes(HederaJsonRpcMethod.SendTransaction)) {
-        console.log("Falling back to", HederaJsonRpcMethod.SendTransaction);
-      }
-    }
-
-    // Request transaction signing via WalletConnect
-    // Use hedera_signAndReturnTransaction to get the wallet to prompt for signing
-    // This method shows the transaction for signing and returns the signed transaction
-    console.log("Sending WalletConnect sign request...");
-    const requestParams = {
-      topic: session.topic,
-      chainId: CHAIN_ID,
-      request: {
-        method: HederaJsonRpcMethod.SignAndReturnTransaction, // Changed from SendTransaction
-        params: {
-          transaction: transactionBase64, // Base64 string
-          accountId: accountId.toString(),
-        },
-      },
-    };
-    
-    console.log("Request params:", {
-      ...requestParams,
-      request: {
-        ...requestParams.request,
-        params: {
-          ...requestParams.request.params,
-          transaction: transactionBase64.substring(0, 50) + '... (base64)',
-        },
-      },
-    });
-    
-    console.log("⏳ Waiting for wallet to prompt for signing...");
-    const response = await signClientInstance.request(requestParams);
-    
-    console.log("✅ Wallet responded with signed transaction");
-    
-    // If we get a signed transaction back, we need to execute it ourselves
-    // For now, let's return the response - we might need to execute it separately
-    // or the wallet might execute it automatically depending on the method
-
-    console.log("Transaction response received:", response);
-    
-    // Check if we got a signed transaction back (from SignAndReturnTransaction)
-    // or a transaction ID (from SendTransaction)
-    const signedTransaction = (response as any)?.signedTransaction;
-    const transactionId = (response as any)?.transactionId || (response as any)?.transactionID;
-    
-    if (signedTransaction) {
-      console.log("✅ Received signed transaction from wallet");
-      console.log("⚠️ Note: Signed transaction needs to be executed separately");
-      // TODO: Execute the signed transaction if needed
-      // For now, return success - the wallet has signed it
-      return {
-        success: true,
-        signedTransaction,
-        response,
-        transactionId: transactionId || "pending",
-      };
-    } else if (transactionId) {
-      console.log("✅ Transaction executed successfully via wallet");
-      return {
-        success: true,
-        transactionId,
-        response,
-      };
-    } else {
-      console.log("✅ Transaction processed by wallet");
-      return {
-        success: true,
-        transactionId: "unknown",
-        response,
-      };
-    }
-  } catch (error: any) {
-    console.error("Error executing contract function:", error);
-    console.error("Error details:", {
-      message: error?.message,
-      code: error?.code,
-      data: error?.data,
-      stack: error?.stack,
-    });
-    
-    // Provide more helpful error message
-    if (error?.code === 6001 || error?.message?.includes('method not supported')) {
-      throw new Error(`Wallet does not support ${HederaJsonRpcMethod.SendTransaction}. Please ensure your wallet supports Hedera WalletConnect.`);
-    }
-    
-    if (error?.message?.includes('session')) {
-      throw new Error('Wallet session expired. Please reconnect your wallet.');
-    }
-    
+    const signature = await signer.sign([Buffer.from(message)]);
+    return signature;
+  } catch (error) {
+    console.error("Error signing message:", error);
     throw error;
   }
 }
@@ -546,13 +419,19 @@ export async function executeContractFunction(
  * Check if wallet is connected
  */
 export function isWalletConnected(): boolean {
-  return session !== null && signClientInstance !== null;
+  return dAppConnector !== null && dAppConnector.signers.length > 0;
 }
 
 /**
- * Get current session
+ * Get current session (for backward compatibility)
  */
-export function getSession(): SessionTypes.Struct | null {
-  return session;
+export function getSession(): any {
+  return dAppConnector ? { connected: dAppConnector.signers.length > 0 } : null;
 }
 
+/**
+ * Get DAppConnector instance
+ */
+export function getDAppConnector(): any {
+  return dAppConnector;
+}
