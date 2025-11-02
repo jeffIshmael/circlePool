@@ -86,6 +86,7 @@ export const getCircleBySlug = async (slug: string) => {
           amount: true,
           doneAt: true,
           txHash: true,
+          receiver: true,
         },
       },
     },
