@@ -203,7 +203,6 @@ export default function CircleDetail({
 
   const handlePaymentSuccess = async () => {
     setShowPaymentModal(false);
-    toast.success("Payment successful! Refreshing data...");
     // Reload circle data
     if (slug) {
       setLoading(true);

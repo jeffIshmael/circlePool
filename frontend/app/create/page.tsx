@@ -116,6 +116,15 @@ export default function CreateCircle() {
       });
 
       console.log("Result from blockchain:", result);
+
+      // Stop execution if blockchain transaction failed
+      if (!result || !result.success) {
+        throw new Error("Failed to create circle on blockchain");
+      }
+
+
+      
+      // Only proceed if blockchain transaction was successful
       const circle = await registerCircle(
         formData.groupName,
         String(totalCircles),
