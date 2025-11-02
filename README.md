@@ -10,8 +10,10 @@ CirclePool brings the traditional rotating savings model online, but with a powe
 - **💰 Micro-Loans**: Enable loans from the growing group fund with interest
 - **🔐 Blockchain-Powered**: Built on Hedera Hashgraph for secure, transparent transactions
 - **👥 Member Management**: Easy member onboarding and payout order management
-- **📊 Real-time Tracking**: Monitor balances, payments, and loan status
+- **📊 Real-time Tracking**: Monitor balances, payments, loan status, and payout schedules
 - **🔔 Notifications**: Stay updated on circle activities and requests
+- **⏰ Automated Payouts**: Automated cron jobs for circle start dates and payout processing
+- **📅 Payout Order Tracking**: Automatic tracking and display of payout order with pay dates and amounts paid
 - **📱 Responsive Design**: Works seamlessly on desktop and mobile devices
 
 ## 🏗️ Tech Stack
@@ -179,6 +181,16 @@ The application uses Prisma ORM. To modify the database schema:
 3. Enter loan amount and duration
 4. Submit loan request
 5. Wait for approval and funds transfer
+
+### Viewing Payout Order
+
+For started circles:
+1. Navigate to the circle detail page
+2. View the payout order table showing:
+   - Member position in payout sequence
+   - Scheduled pay date for each member
+   - Amount paid (for members who have received payouts)
+   - Current balance and loan status
 
 ## 🌐 Deployment
 

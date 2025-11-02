@@ -1,6 +1,6 @@
 /**
- * @title AI Agent Service
- * @author Jeff Muchiri
+ * @title Agent Service
+ * 
  * 
  * Server-side service for executing AI agent functions on the CirclePool contract.
  * These functions require the AI agent role (onlyAiAgent modifier).

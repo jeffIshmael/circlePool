@@ -1,6 +1,6 @@
 /**
  * @title Hedera Client Utility
- * @author Jeff Muchiri
+ * 
  *
  * Utility for creating Hedera client instances for server-side operations
  */

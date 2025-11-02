@@ -38,7 +38,6 @@ export const getCircleById = async (id: number) => {
     headers: { 'x-api-key': process.env.NEXT_PUBLIC_API_KEY || '' },
   });
   const json = await res.json();
-  console.log("circle by id",json);
   if (!res.ok) throw new Error(json?.error || 'Failed to fetch circle');
   return json as {
     circleId: number;
@@ -62,7 +61,6 @@ export const getMembersOnchainWithBalances = async (id: number) => {
     headers: { 'x-api-key': process.env.NEXT_PUBLIC_API_KEY || '' },
   });
   const json = await res.json();
-  console.log("members onchain with balances",json);
   if (!res.ok) throw new Error(json?.error || 'Failed to fetch members');
   return json as { circleId: number; members: Array<{ address: string; balance: number; loan: number }>; total: number };
 };

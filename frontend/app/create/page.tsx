@@ -39,12 +39,13 @@ export default function CreateCircle() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("Creating circle:", formData);
     setCreatingError(null);
+
     if (!isConnected || !accountId) {
       setCreatingError("Please connect your wallet");
       return;
     }
+    setIsCreating(true);
     // Client-side validations
     const amountNum = Number(formData.amount);
     const frequencyNum = Number(formData.frequency);
@@ -55,30 +56,37 @@ export default function CreateCircle() {
 
     if (!formData.groupName.trim()) {
       setCreatingError("Circle name is required");
+      setIsCreating(false);
       return;
     }
     if (!formData.startDate || !formData.startTime || isNaN(start.getTime())) {
       setCreatingError("Please select a valid start date and time");
+      setIsCreating(false);
       return;
     }
     if (start <= now) {
       setCreatingError("Start date & time must be in the future");
+      setIsCreating(false);
       return;
     }
     if (isNaN(amountNum) || amountNum <= 0) {
       setCreatingError("Amount must be greater than 0");
+      setIsCreating(false);
       return;
     }
     if (isNaN(frequencyNum) || frequencyNum < 1) {
       setCreatingError("Contribution frequency must be at least 1 day");
+      setIsCreating(false);
       return;
     }
     if (isNaN(retainedNum) || retainedNum < 10) {
       setCreatingError("Retention percentage must be at least 10%");
+      setIsCreating(false);
       return;
     }
     if (isNaN(interestNum) || interestNum < 5) {
       setCreatingError("Interest rate must be at least 5%");
+      setIsCreating(false);
       return;
     }
     // check if the slug exists
@@ -87,11 +95,10 @@ export default function CreateCircle() {
       setCreatingError(
         "Circle name already exists. Please choose another name."
       );
+      setIsCreating(false);
       return;
     }
-    // Handle circle creation logic here
-    setIsCreating(true);
-    setCreatingError(null);
+
     try {
       // add  start date and time to form data
       const startDate = new Date(`${formData.startDate} ${formData.startTime}`);
@@ -375,7 +382,7 @@ export default function CreateCircle() {
                   type="submit"
                   disabled={creating}
                   aria-busy={creating}
-                  className="w-full px-6 py-4 bg-primary-blue text-white rounded-lg transition-all font-semibold text-lg flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="w-full px-6 py-4 bg-primary-blue text-white rounded-lg transition-all font-semibold text-lg flex items-center justify-center gap-2 hover:bg-primary-blue/80 hover:scale-105 hover:cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {creating ? (
                     <>
