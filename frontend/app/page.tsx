@@ -3,15 +3,38 @@ import Header from "@/components/Header";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
 import Image from "next/image";
 import dynamic from "next/dynamic";
+import { checkStartdate } from "./lib/cronjobs";
+import { useEffect } from "react";
 
 const HashConnectButton = dynamic(() => import("./components/HashConnectButton"), { ssr: false });
 
 
 export default function Home() {
+  useEffect(() => {
+    const checkStartdateFunction = async () => {
+      try {
+        const response = await fetch("/api/cron?job=startdate",{
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": process.env.NEXT_PUBLIC_API_KEY || "xqwubqsoqiuh671bsw",
+          },
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to check startdate: ${response.statusText}`);
+        }
+        const data = await response.json();
+        console.log("checkStartdate response",data);
+      } catch (error: any) {
+        console.error(error);
+      }
+    };
+    checkStartdateFunction();
+  }, []);
   return (
     <div className="min-h-screen pb-16 md:pb-0">
       <Header />
-
+     
       {/* Hero Section */}
       <section className="bg-primary-light pt-20 pb-32 relative overflow-hidden">
         {/* Decorative Pattern */}

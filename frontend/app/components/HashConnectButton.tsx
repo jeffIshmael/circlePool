@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useHashConnect } from "../hooks/useHashConnect";
 import { Wallet, LogOut } from "lucide-react";
-import { registerUser, checkUserRegistered } from "../lib/prismafunctions";
+import { registerUser } from "../lib/prismafunctions";
 
 type HashConnectButtonProps = {
   hbarBalance?: number;
@@ -18,12 +18,22 @@ export default function HashConnectButton({ hbarBalance = 0 }: HashConnectButton
       if (!isConnected || !accountId) return;
       if (registeredRef.current === accountId) return;
       try {
-       // check whether user is registered
-       const isRegistered = await checkUserRegistered(accountId as string);
-       if (!isRegistered) {
-        // register user
-        await registerUser(null, accountId);
-       }
+        // Convert accountId to EVM address on client side
+        let evmAddress: string | null = null;
+        try {
+          // Dynamically import Hedera SDK to compute EVM address
+          const { AccountId } = await import("@hashgraph/sdk");
+          const accountIdObj = AccountId.fromString(accountId);
+          const evm = accountIdObj.toEvmAddress();
+          evmAddress = evm.startsWith('0x') ? evm : `0x${evm}`;
+        } catch (e) {
+          // If conversion fails, evmAddress will be null and server will compute it
+          console.warn("Failed to compute EVM address on client:", e);
+        }
+        
+        // Register or update user with evmAddress
+        // registerUser handles both new registration and updating existing users
+        await registerUser(null, accountId, evmAddress);
       } catch {
         // silently ignore; UI shouldn't be blocked by registration
       }

@@ -22,7 +22,12 @@ import {
   getCircleById,
   getMembersOnchainWithBalances,
 } from "@/app/services/circleService";
-import { getCircleBySlug, checkUserIsMemberOfCircle, sendRequestToJoinCircle, checkUserHasPendingJoinRequestToCircle } from "@/app/lib/prismafunctions";
+import {
+  getCircleBySlug,
+  checkUserIsMemberOfCircle,
+  sendRequestToJoinCircle,
+  checkUserHasPendingJoinRequestToCircle,
+} from "@/app/lib/prismafunctions";
 import { useHashConnect } from "@/app/hooks/useHashConnect";
 import { toast } from "sonner";
 
@@ -49,7 +54,9 @@ export default function CircleDetail({
   const [showNotification, setShowNotification] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [slug, setSlug] = useState("");
-  const [blockchainCircleId, setBlockchainCircleId] = useState<number | null>(null);
+  const [blockchainCircleId, setBlockchainCircleId] = useState<number | null>(
+    null
+  );
 
   const { accountId } = useHashConnect();
   const [loading, setLoading] = useState(true);
@@ -112,10 +119,17 @@ export default function CircleDetail({
         // check membership (only if wallet connected)
         if (accountId) {
           try {
-            const mem = await checkUserIsMemberOfCircle(accountId, prismaCircle.slug);
-            if(!mem) {
-              const hasPendingRequest = await checkUserHasPendingJoinRequestToCircle(accountId, prismaCircle.id);
-              setPendingRequest(hasPendingRequest);         
+            const mem = await checkUserIsMemberOfCircle(
+              accountId,
+              prismaCircle.slug
+            );
+            if (!mem) {
+              const hasPendingRequest =
+                await checkUserHasPendingJoinRequestToCircle(
+                  accountId,
+                  prismaCircle.id
+                );
+              setPendingRequest(hasPendingRequest);
             }
             if (!cancelled) setIsMember(!!mem);
           } catch {}
@@ -125,11 +139,24 @@ export default function CircleDetail({
         const membersOnChain = await getMembersOnchainWithBalances(
           chainCircleId
         );
-        
-        // Create a map of on-chain member data by address
+        // Create a map of on-chain member data by address (normalized to EVM format)
         const onChainMemberMap = new Map<string, any>();
         (membersOnChain.members || []).forEach((m: any) => {
-          onChainMemberMap.set(m.address, m);
+          // Normalize address to ensure it's in EVM format (0x...)
+          let normalizedAddress = m.address;
+          if (normalizedAddress && !normalizedAddress.startsWith('0x')) {
+            if (normalizedAddress.length === 40) {
+              normalizedAddress = '0x' + normalizedAddress;
+            }
+          }
+          // Store with normalized EVM address as key
+          if (normalizedAddress && normalizedAddress.startsWith('0x') && normalizedAddress.length === 42) {
+            onChainMemberMap.set(normalizedAddress.toLowerCase(), m);
+            // Also store with original address as key for backward compatibility
+            if (m.address !== normalizedAddress) {
+              onChainMemberMap.set(m.address, m);
+            }
+          }
         });
 
         // Create a map of payout amounts by receiver address
@@ -153,39 +180,71 @@ export default function CircleDetail({
         }> = [];
 
         const started = !!prismaCircle.started;
-        
+
         if (started && prismaCircle.payOutOrder) {
           // Use payout order when circle has started
           try {
             const payoutOrder: Array<{
-              userAddress: string;
+              userAddress: string; // Hedera account ID (0.0.x)
+              evmAddress?: string; // EVM address (0x...)
               payDate: string;
               paid: boolean;
             }> = JSON.parse(prismaCircle.payOutOrder as string);
 
+            // Helper function to find matching EVM address in onChainMemberMap
+            // This handles cases where evmAddress is missing from payout order
+            const findMatchingEvmAddress = (userAddress: string): string | null => {
+              if (!userAddress) return null;
+              // If userAddress is already EVM format, try it directly
+              if (userAddress.startsWith('0x') && userAddress.length === 42) {
+                return onChainMemberMap.has(userAddress) ? userAddress : null;
+              }
+              // Otherwise, we need to find the matching EVM address
+              // Since we can't easily convert on client side, we'll try to find it
+              // by checking if any member's address matches (this is a fallback)
+              // The best solution is to ensure evmAddress is always set in payout order
+              return null;
+            };
+
             memberList = payoutOrder.map((item: any, idx: number) => {
-              const onChainData = onChainMemberMap.get(item.userAddress) || {
-                balance: 0,
-                loan: 0,
-              };
+              // Always use EVM address for on-chain lookups
+              // Prefer evmAddress if available, otherwise try to find matching address
+              let keyForOnChain: string;
+              if (item.evmAddress) {
+                // Normalize EVM address (lowercase for consistency)
+                keyForOnChain = item.evmAddress.toLowerCase();
+              } else {
+                // Try to find matching EVM address
+                const matchingEvm = findMatchingEvmAddress(item.userAddress);
+                keyForOnChain = matchingEvm ? matchingEvm.toLowerCase() : (item.userAddress || "");
+              }
               
+              // Try lookup with normalized key (already lowercase)
+              let onChainData = onChainMemberMap.get(keyForOnChain);
+              if (!onChainData) {
+                onChainData = { balance: 0, loan: 0 };
+              }
+
               const balH =
                 ((onChainData.balance || 0) / 100_000_000).toFixed(2) + " HBAR";
               const loanH =
                 ((onChainData.loan || 0) / 100_000_000).toFixed(2) + " HBAR";
-              
+
+              // Display accountId if available, otherwise the EVM address
+              const displayAddress = item.userAddress || item.evmAddress || "";
               const label =
-                accountId && item.userAddress === accountId
+                accountId && displayAddress === accountId
                   ? "You"
-                  : item.userAddress;
-              
-              const status = (onChainData.balance || 0) > 0 ? "Active" : "Pending";
-              
+                  : displayAddress;
+
+              const status =
+                (onChainData.balance || 0) > 0 ? "Active" : "Pending";
+
               // Format payDate
               const payDateStr = mounted
                 ? formatDateForDisplay(new Date(item.payDate))
                 : "Loading...";
-              
+
               // Get amount paid if this member has been paid
               let amountPaidStr: string | undefined;
               if (item.paid) {
@@ -212,8 +271,10 @@ export default function CircleDetail({
             // Fallback to original member list if parsing fails
             memberList = (membersOnChain.members || []).map(
               (m: any, idx: number) => {
-                const balH = ((m.balance || 0) / 100_000_000).toFixed(2) + " HBAR";
-                const loanH = ((m.loan || 0) / 100_000_000).toFixed(2) + " HBAR";
+                const balH =
+                  ((m.balance || 0) / 100_000_000).toFixed(2) + " HBAR";
+                const loanH =
+                  ((m.loan || 0) / 100_000_000).toFixed(2) + " HBAR";
                 const label =
                   accountId && m.address === accountId ? "You" : m.address;
                 const status = (m.balance || 0) > 0 ? "Active" : "Pending";
@@ -232,7 +293,8 @@ export default function CircleDetail({
           // Use members list when circle hasn't started
           memberList = (membersOnChain.members || []).map(
             (m: any, idx: number) => {
-              const balH = ((m.balance || 0) / 100_000_000).toFixed(2) + " HBAR";
+              const balH =
+                ((m.balance || 0) / 100_000_000).toFixed(2) + " HBAR";
               const loanH = ((m.loan || 0) / 100_000_000).toFixed(2) + " HBAR";
               const label =
                 accountId && m.address === accountId ? "You" : m.address;
@@ -261,13 +323,15 @@ export default function CircleDetail({
         const dateSource = started
           ? new Date(prismaCircle.payDate)
           : new Date(prismaCircle.startDate);
-        
+
         // FIX: Format date only on client side to avoid hydration mismatch
-        const dateLabel = mounted ? formatDateForDisplay(dateSource) : "Loading...";
-        
+        const dateLabel = mounted
+          ? formatDateForDisplay(dateSource)
+          : "Loading...";
+
         const loanableHbar =
           ((onChain.loanableAmount || 0) / 100_000_000).toFixed(2) + " HBAR";
-        const amountHbar = (Number(prismaCircle.amount || 0)) + " HBAR";
+        const amountHbar = Number(prismaCircle.amount || 0) + " HBAR";
 
         if (!cancelled) {
           setCircle({
@@ -318,12 +382,28 @@ export default function CircleDetail({
         if (prismaCircle) {
           const chainCircleId = Number(prismaCircle.blockchainId);
           const onChain = await getCircleById(chainCircleId);
-          const membersOnChain = await getMembersOnchainWithBalances(chainCircleId);
-          
-          // Create a map of on-chain member data by address
+          const membersOnChain = await getMembersOnchainWithBalances(
+            chainCircleId
+          );
+
+          // Create a map of on-chain member data by address (normalized to EVM format)
           const onChainMemberMap = new Map<string, any>();
           (membersOnChain.members || []).forEach((m: any) => {
-            onChainMemberMap.set(m.address, m);
+            // Normalize address to ensure it's in EVM format (0x...)
+            let normalizedAddress = m.address;
+            if (normalizedAddress && !normalizedAddress.startsWith('0x')) {
+              if (normalizedAddress.length === 40) {
+                normalizedAddress = '0x' + normalizedAddress;
+              }
+            }
+            // Store with normalized EVM address as key
+            if (normalizedAddress && normalizedAddress.startsWith('0x') && normalizedAddress.length === 42) {
+              onChainMemberMap.set(normalizedAddress.toLowerCase(), m);
+              // Also store with original address as key for backward compatibility
+              if (m.address !== normalizedAddress) {
+                onChainMemberMap.set(m.address, m);
+              }
+            }
           });
 
           // Create a map of payout amounts by receiver address
@@ -352,33 +432,56 @@ export default function CircleDetail({
             try {
               const payoutOrder: Array<{
                 userAddress: string;
+                evmAddress?: string;
                 payDate: string;
                 paid: boolean;
               }> = JSON.parse(prismaCircle.payOutOrder as string);
 
+              // Helper function to find matching EVM address in onChainMemberMap
+              const findMatchingEvmAddress = (userAddress: string): string | null => {
+                if (!userAddress) return null;
+                if (userAddress.startsWith('0x') && userAddress.length === 42) {
+                  return onChainMemberMap.has(userAddress) ? userAddress : null;
+                }
+                return null;
+              };
+
               memberList = payoutOrder.map((item: any, idx: number) => {
-                const onChainData = onChainMemberMap.get(item.userAddress) || {
-                  balance: 0,
-                  loan: 0,
-                };
+                // Always use EVM address for on-chain lookups
+                let keyForOnChain: string;
+                if (item.evmAddress) {
+                  // Normalize EVM address (lowercase for consistency)
+                  keyForOnChain = item.evmAddress.toLowerCase();
+                } else {
+                  const matchingEvm = findMatchingEvmAddress(item.userAddress);
+                  keyForOnChain = matchingEvm ? matchingEvm.toLowerCase() : (item.userAddress || "");
+                }
                 
+                // Try lookup with normalized key (already lowercase)
+                let onChainData = onChainMemberMap.get(keyForOnChain);
+                if (!onChainData) {
+                  onChainData = { balance: 0, loan: 0 };
+                }
+
                 const balH =
-                  ((onChainData.balance || 0) / 100_000_000).toFixed(2) + " HBAR";
+                  ((onChainData.balance || 0) / 100_000_000).toFixed(2) +
+                  " HBAR";
                 const loanH =
                   ((onChainData.loan || 0) / 100_000_000).toFixed(2) + " HBAR";
-                
+
                 const label =
                   accountId && item.userAddress === accountId
                     ? "You"
                     : item.userAddress;
-                
-                const status = (onChainData.balance || 0) > 0 ? "Active" : "Pending";
-                
+
+                const status =
+                  (onChainData.balance || 0) > 0 ? "Active" : "Pending";
+
                 // Format payDate
                 const payDateStr = mounted
                   ? formatDateForDisplay(new Date(item.payDate))
                   : "Loading...";
-                
+
                 // Get amount paid if this member has been paid
                 let amountPaidStr: string | undefined;
                 if (item.paid) {
@@ -405,8 +508,10 @@ export default function CircleDetail({
               // Fallback to original member list if parsing fails
               memberList = (membersOnChain.members || []).map(
                 (m: any, idx: number) => {
-                  const balH = ((m.balance || 0) / 100_000_000).toFixed(2) + " HBAR";
-                  const loanH = ((m.loan || 0) / 100_000_000).toFixed(2) + " HBAR";
+                  const balH =
+                    ((m.balance || 0) / 100_000_000).toFixed(2) + " HBAR";
+                  const loanH =
+                    ((m.loan || 0) / 100_000_000).toFixed(2) + " HBAR";
                   const label =
                     accountId && m.address === accountId ? "You" : m.address;
                   const status = (m.balance || 0) > 0 ? "Active" : "Pending";
@@ -425,8 +530,10 @@ export default function CircleDetail({
             // Use members list when circle hasn't started
             memberList = (membersOnChain.members || []).map(
               (m: any, idx: number) => {
-                const balH = ((m.balance || 0) / 100_000_000).toFixed(2) + " HBAR";
-                const loanH = ((m.loan || 0) / 100_000_000).toFixed(2) + " HBAR";
+                const balH =
+                  ((m.balance || 0) / 100_000_000).toFixed(2) + " HBAR";
+                const loanH =
+                  ((m.loan || 0) / 100_000_000).toFixed(2) + " HBAR";
                 const label =
                   accountId && m.address === accountId ? "You" : m.address;
                 const status = (m.balance || 0) > 0 ? "Active" : "Pending";
@@ -441,7 +548,7 @@ export default function CircleDetail({
               }
             );
           }
-          
+
           const loanableHbar =
             ((onChain.loanableAmount || 0) / 100_000_000).toFixed(2) + " HBAR";
           setCircle((prev) => ({ ...prev, loanableAmount: loanableHbar }));
@@ -456,8 +563,9 @@ export default function CircleDetail({
   };
 
   // FIX: Only get shareLink on client side
-  const shareLink = mounted && typeof window !== "undefined" ? window.location.href : "";
-  
+  const shareLink =
+    mounted && typeof window !== "undefined" ? window.location.href : "";
+
   const copyShare = async () => {
     // FIX: Check if clipboard API is available
     if (!mounted || typeof navigator === "undefined" || !navigator.clipboard) {
@@ -479,7 +587,9 @@ export default function CircleDetail({
         return;
       }
       await sendRequestToJoinCircle(accountId, circle.id);
-      toast.success("Join request sent. Awaiting approval from the circle admin.");
+      toast.success(
+        "Join request sent. Awaiting approval from the circle admin."
+      );
     } catch {
       toast.error("Failed to send join request");
     }
@@ -492,10 +602,19 @@ export default function CircleDetail({
         <section className="pt-24 md:pt-16 pb-8">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="bg-white rounded-3xl shadow-xl p-6 md:p-8 border border-primary-lavender/40 text-center">
-              <h1 className="text-2xl md:text-3xl font-bold text-primary-dark mb-2">Circle not found</h1>
-              <p className="text-primary-slate">The circle you are looking for does not exist or was removed.</p>
+              <h1 className="text-2xl md:text-3xl font-bold text-primary-dark mb-2">
+                Circle not found
+              </h1>
+              <p className="text-primary-slate">
+                The circle you are looking for does not exist or was removed.
+              </p>
               <div className="mt-6">
-                <Link href="/my-circles" className="px-4 py-2 bg-primary-blue text-white rounded-lg">Back to My Circles</Link>
+                <Link
+                  href="/my-circles"
+                  className="px-4 py-2 bg-primary-blue text-white rounded-lg"
+                >
+                  Back to My Circles
+                </Link>
               </div>
             </div>
           </div>
@@ -514,7 +633,9 @@ export default function CircleDetail({
             <div className="flex items-center justify-center min-h-[400px]">
               <div className="text-center">
                 <Loader2 className="w-12 h-12 animate-spin text-primary-blue mx-auto mb-4" />
-                <p className="text-primary-slate text-lg">Loading circle details...</p>
+                <p className="text-primary-slate text-lg">
+                  Loading circle details...
+                </p>
               </div>
             </div>
           </div>
@@ -601,12 +722,14 @@ export default function CircleDetail({
                     </span>
                   )}
                 </h1>
-                <div className="flex items-center gap-2 text-bold mt-4 text-primary-slate" style={{ fontSize: "12px" }}>
+                <div
+                  className="flex items-center gap-2 text-bold mt-4 text-primary-slate"
+                  style={{ fontSize: "12px" }}
+                >
                   <CalendarClock className="w-4 h-4 text-primary-blue" />
                   <span className="text-bold">
                     {circle.amount}/{circle.duration} days
                   </span>
-
                 </div>
                 <div className="flex items-center gap-4 mt-2 text-sm text-primary-slate">
                   <span className="flex items-center gap-2">
@@ -615,8 +738,8 @@ export default function CircleDetail({
                   </span>
                   <span className="flex items-center gap-2">
                     <Percent className="w-4 h-4 text-primary-blue" />{" "}
-                    {circle.retainedPercent}% Retained for every payout • {circle.interestRate}%
-                    Interest on loans
+                    {circle.retainedPercent}% Retained for every payout •{" "}
+                    {circle.interestRate}% Interest on loans
                   </span>
                 </div>
               </div>
@@ -636,7 +759,11 @@ export default function CircleDetail({
                   Share
                 </button>
                 {/* Tooltip */}
-                <div className={`pointer-events-none absolute right-0 top-full mt-2 z-40 text-center ${showShare ? "block" : "hidden"} group-hover:block`}>
+                <div
+                  className={`pointer-events-none absolute right-0 top-full mt-2 z-40 text-center ${
+                    showShare ? "block" : "hidden"
+                  } group-hover:block`}
+                >
                   <div className="rounded-md bg-black/80 text-white text-xs px-2 py-1 shadow-md whitespace-nowrap">
                     Copy link to share
                   </div>
@@ -697,7 +824,7 @@ export default function CircleDetail({
                       if (circle.started) setShowLoanModal(true);
                       else toast.warning("Circle hasn't started yet!");
                     }}
-                    className={`w-full px-4 py-2 rounded-lg font-semibold transition ${
+                    className={`w-full px-4 py-2 rounded-lg font-semibold transition hover:cursor-pointer hover:bg-primary-blue/90 ${
                       circle.started
                         ? "bg-primary-blue text-white hover:bg-opacity-90"
                         : "bg-gray-300 text-gray-600 cursor-not-allowed"
@@ -711,13 +838,19 @@ export default function CircleDetail({
             {!isMember && (
               <div className="bg-white rounded-2xl border border-primary-lavender/40 p-6 shadow-md flex items-center justify-between">
                 <div>
-                  <div className="text-xs font-semibold text-primary-blue uppercase tracking-wide mb-2">Membership</div>
-                  <div className="text-primary-dark font-semibold">You are not a member of this circle</div>
-                  <div className="text-sm text-primary-slate">Request access to view loan limits and member balances.</div>
+                  <div className="text-xs font-semibold text-primary-blue uppercase tracking-wide mb-2">
+                    Membership
+                  </div>
+                  <div className="text-primary-dark font-semibold">
+                    You are not a member of this circle
+                  </div>
+                  <div className="text-sm text-primary-slate">
+                    Request access to view loan limits and member balances.
+                  </div>
                 </div>
                 <button
                   onClick={() => handleRequestToJoin()}
-                  className="px-4 py-2 bg-primary-blue text-white rounded-lg font-semibold hover:bg-opacity-90"
+                  className="px-4 py-2 bg-primary-blue text-white rounded-lg font-semibold hover:bg-opacity-90 hover:cursor-pointer"
                 >
                   {pendingRequest ? "Request Sent" : "Request to Join"}
                 </button>
@@ -738,8 +871,8 @@ export default function CircleDetail({
             {!circle.started && (
               <div className="mb-4 bg-yellow-50 border border-yellow-200 text-yellow-800 p-3 rounded-lg text-sm flex items-center gap-2">
                 <Clock className="w-4 h-4" />
-                This circle has not started yet. Balances & payout order will update once it
-                begins.
+                This circle has not started yet. Balances & payout order will
+                update once it begins.
               </div>
             )}
 
@@ -749,12 +882,14 @@ export default function CircleDetail({
                 <button
                   onClick={() => {
                     if (!accountId) {
-                      toast.error("Please connect your wallet to make a payment");
+                      toast.error(
+                        "Please connect your wallet to make a payment"
+                      );
                       return;
                     }
                     setShowPaymentModal(true);
                   }}
-                  className="px-6 py-3 bg-primary-blue text-white rounded-xl font-semibold hover:bg-primary-blue/90 transition-all flex items-center gap-2 shadow-md hover:shadow-lg"
+                  className="px-6 py-3 bg-primary-blue text-white rounded-xl font-semibold hover:cursor-pointer hover:bg-primary-blue/90 transition-all flex items-center gap-2 shadow-md hover:shadow-lg"
                 >
                   <CreditCard className="w-5 h-5" />
                   Make Payment
@@ -836,8 +971,12 @@ export default function CircleDetail({
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="bg-white rounded-2xl border border-primary-lavender/40 p-8 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
-                <h3 className="text-xl font-semibold text-primary-dark mb-1">Members & Balances</h3>
-                <p className="text-sm text-primary-slate">Only members can view member list and balances.</p>
+                <h3 className="text-xl font-semibold text-primary-dark mb-1">
+                  Members & Balances
+                </h3>
+                <p className="text-sm text-primary-slate">
+                  Only members can view member list and balances.
+                </p>
               </div>
               <button
                 onClick={() => toast.info("Join request sent")}
