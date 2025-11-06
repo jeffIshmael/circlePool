@@ -40,7 +40,7 @@ export async function GET(
         members: {
           include: {
             user: {
-              select: { address: true },
+              select: { evmAddress: true },
             },
           },
         },
@@ -49,9 +49,21 @@ export async function GET(
 
     const addresses: string[] = Array.isArray(prismaCircle?.members)
       ? prismaCircle!.members
-          .map((m) => m.user?.address)
+          .map((m) => {
+            const evmAddress = m.user?.evmAddress;
+            if (!evmAddress) return null;
+            // Normalize address: ensure 0x prefix and lowercase
+            let normalized = evmAddress;
+            if (!normalized.startsWith('0x')) {
+              if (normalized.length === 40) {
+                normalized = '0x' + normalized;
+              }
+            }
+            return normalized.toLowerCase();
+          })
           .filter((a): a is string => typeof a === "string" && a.length > 0)
       : [];
+
 
     // Lazy load SDK modules
     const { ContractCallQuery, ContractFunctionParameters, Hbar, ContractId } = await import("@hashgraph/sdk");
@@ -68,18 +80,37 @@ export async function GET(
             .setFunction(
               "getBalance",
               new ContractFunctionParameters()
-                .addUint256(circleIdNum)
-                .addAddress(address)
+                .addUint256(Number(circleIdNum))
+                .addAddress(address as `0x${string}`)
             )
             .setQueryPayment(new Hbar(0.1));
 
           const result = await query.execute(client);
-          const balance = result.getUint256(0).toNumber();
-          const loan = result.getUint256(1).toNumber();
-          return { address, balance, loan };
+          
+          // Parse balance and loan from result
+          // getBalance returns uint256[] (dynamic array)
+          // For dynamic arrays: index 0 contains the offset (in bytes) to the array data
+          const arrayOffsetBytes = result.getUint256(0).toNumber();
+          const arrayLengthSlot = arrayOffsetBytes / 32; // Convert bytes to slot index (32 bytes per slot)
+          
+          // At the offset slot: array length (should be 2: [balance, loan])
+          const arrayLength = result.getUint256(arrayLengthSlot).toNumber();
+          
+          if (arrayLength === 2) {
+            // Get balance (index 0) and loan (index 1) from the array
+            const balance = result.getUint256(arrayLengthSlot + 1).toNumber();
+            const loan = result.getUint256(arrayLengthSlot + 2).toNumber();
+            
+            // Return normalized address (lowercase) for consistency
+            return { address: address.toLowerCase(), balance, loan };
+          } else {
+            console.error(`Invalid array length for ${address}: expected 2, got ${arrayLength}`);
+            return { address: address.toLowerCase(), balance: 0, loan: 0 };
+          }
         } catch (e) {
+          console.error(`Error querying balance for ${address}:`, e);
           // On failure, return zeros for this member to keep the list stable
-          return { address, balance: 0, loan: 0 };
+          return { address: address.toLowerCase(), balance: 0, loan: 0 };
         }
       })
     );

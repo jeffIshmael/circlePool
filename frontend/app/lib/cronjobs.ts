@@ -9,10 +9,11 @@ import {
   updateDisbursementContext,
   updateRefundContext,
 } from "./prismafunctions";
-import { setPayoutOrder, checkPayDate } from "../services/aiAgentService";
+import { setPayoutOrder, checkPayDate, getOnChainMembers } from "../services/aiAgentService";
 
 interface PayoutOrder {
-  userAddress: string;
+  userAddress: string; // Hedera account ID (0.0.x) for DB consistency
+  evmAddress?: string; // EVM address (0x...) for on-chain joins
   payDate: Date;
   paid: boolean;
 }
@@ -24,10 +25,68 @@ export const checkStartdate = async () => {
     for (const circle of circles) {
       if (!circle.started && circle.startDate < new Date()) {
         // set as started and set the payout order
-        const payoutOrderAddresses = getRandomOrder(
-          circle.members.map((member: any) => member.address)
-        );
-        // set the payou order onchain
+        // IMPORTANT: Use on-chain members to ensure exact match with contract
+        // The contract requires payout order length to exactly match on-chain members count
+        let onChainMemberAddresses: string[] = [];
+        
+        try {
+          // Query on-chain members directly from the contract
+          onChainMemberAddresses = await getOnChainMembers(Number(circle.blockchainId));
+          
+          if (onChainMemberAddresses.length === 0) {
+            console.warn(`Circle ${circle.id} (blockchainId: ${circle.blockchainId}) has no on-chain members, skipping...`);
+            continue;
+          }
+          
+          console.log(`✅ Circle ${circle.id} (blockchainId: ${circle.blockchainId}) has ${onChainMemberAddresses.length} on-chain members`);
+          console.log(`Database has ${circle.members.length} members`);
+          
+          if (onChainMemberAddresses.length !== circle.members.length) {
+            console.warn(`⚠️  Mismatch: On-chain has ${onChainMemberAddresses.length} members, database has ${circle.members.length} members`);
+          }
+          
+          // Note: Allowing circles with 1 member (admin) to start
+          // This allows the circle to be set up even if only the creator has joined
+          if (onChainMemberAddresses.length < 1) {
+            console.warn(`⚠️  Circle ${circle.id} has no members on-chain. Cannot start circle.`);
+            continue; // Skip this circle
+          }
+          
+        } catch (error: any) {
+          console.error(`❌ Failed to get on-chain members for circle ${circle.id} (blockchainId: ${circle.blockchainId}):`, error);
+          // Fallback to database members if we can't query on-chain
+          console.warn(`Falling back to database members for circle ${circle.id}`);
+          
+          const memberAddresses: string[] = [];
+          for (const member of circle.members) {
+            const address = member.user?.address;
+            if (!address || typeof address !== 'string' || address.trim() === '') {
+              console.error(`Circle ${circle.id} has member ${member.id} without valid address. Skipping circle start.`);
+              throw new Error(`Circle ${circle.id} cannot start: member ${member.id} (userId: ${member.userId}) is missing a valid address. All members must have addresses before starting.`);
+            }
+            memberAddresses.push(address);
+          }
+          
+          if (memberAddresses.length === 0) {
+            console.warn(`Circle ${circle.id} has no members, skipping...`);
+            continue;
+          }
+          
+          onChainMemberAddresses = memberAddresses;
+        }
+        
+        // Shuffle the on-chain member addresses for payout order
+        // Note: onChainMemberAddresses are already in EVM format (0x...)
+        const payoutOrderAddresses = getRandomOrder(onChainMemberAddresses);
+        console.log(`Payout order addresses: ${payoutOrderAddresses}`);
+        
+        console.log(`📋 Setting payout order for circle ${circle.id} (blockchainId: ${circle.blockchainId})`);
+        console.log(`   - On-chain member count: ${onChainMemberAddresses.length}`);
+        console.log(`   - Payout order addresses: ${payoutOrderAddresses.length} (EVm format)`);
+        console.log(`   - First 3 addresses:`, payoutOrderAddresses.slice(0, 3).map(addr => addr.substring(0, 12) + '...'+ addr.substring(addr.length - 4)));
+        
+        // set the payout order onchain
+        // The addresses are already in EVM format, so setPayoutOrder will use them as-is
         const result = await setPayoutOrder(
           Number(circle.blockchainId),
           payoutOrderAddresses
@@ -35,15 +94,23 @@ export const checkStartdate = async () => {
         if (!result) {
           throw new Error("Failed to set payout order onchain");
         }
-        // the payout order should be an array of the object
-        const payoutOrder: PayoutOrder[] = payoutOrderAddresses.map(
-          (address: string, index: number) => ({
-            userAddress: address,
-            payDate: new Date(
-              circle.payDate.getTime() +
-                circle.cycleTime * 24 * 60 * 60 * 1000 * index
-            ),
-            paid: false,
+        
+        // Convert EVM addresses back to Hedera account IDs for database storage
+        // This ensures consistency with how addresses are stored in the database
+        const { convertEvmAddressToAccountId } = await import("../services/aiAgentService");
+        const payoutOrder: PayoutOrder[] = await Promise.all(
+          payoutOrderAddresses.map(async (address: string, index: number) => {
+            // Convert EVM address (0x...) back to Hedera account ID (0.0.x) for storage
+            const accountId = await convertEvmAddressToAccountId(address);
+            return {
+              userAddress: accountId, // Store as Hedera account ID in database
+              evmAddress: address, // Also store EVM address for on-chain joins
+              payDate: new Date(
+                circle.payDate.getTime() +
+                  circle.cycleTime * 24 * 60 * 60 * 1000 * index
+              ),
+              paid: false,
+            };
           })
         );
 

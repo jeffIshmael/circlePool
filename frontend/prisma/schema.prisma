@@ -16,6 +16,7 @@ model User {
   email         String?        
   userName      String?         
   address       String         @unique
+  evmAddress    String?         // EVM address (0x...)
   createdCircles Circle[]        @relation("AdminCircles")
   circles        CircleMember[]
   joinRequests  CircleRequest[]

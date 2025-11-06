@@ -37,6 +37,7 @@ export const getCircles = async () => {
               id: true,
               userName: true,
               address: true,
+              evmAddress: true,
             },
           },
         },
@@ -58,6 +59,7 @@ export const getCircleBySlug = async (slug: string) => {
               id: true,
               userName: true,
               address: true,
+              evmAddress: true,
             },
           },
         },
@@ -105,21 +107,54 @@ export const getCircleById = async (id: number) => {
 // register user
 export const registerUser = async (
   userName: string | null,
-  address: string
+  address: string,
+  evmAddress?: string | null
 ) => {
   try {
-    const existingUser = await prisma.user.findUnique({
-      where: {
-        address,
-      },
-    });
+    const existingUser = await prisma.user.findUnique({ where: { address } });
     if (existingUser) {
-      throw new Error("User already exists");
+      // If user exists but misses evmAddress, populate it
+      if (!existingUser.evmAddress) {
+        let evmToSet: string | null = evmAddress || null;
+        
+        // If evmAddress not provided, compute it from address
+        if (!evmToSet) {
+          try {
+            const { AccountId } = await import("@hashgraph/sdk");
+            const evm = AccountId.fromString(address).toEvmAddress();
+            evmToSet = evm.startsWith('0x') ? evm : `0x${evm}`;
+          } catch {}
+        }
+        
+        if (evmToSet) {
+          await prisma.user.update({
+            where: { id: existingUser.id },
+            data: { evmAddress: evmToSet },
+          });
+        }
+      }
+      return existingUser;
+    }
+    // Use provided evmAddress or compute from Hedera account ID
+    let computedEvm: string | null = evmAddress || null;
+    if (!computedEvm) {
+      if (address.startsWith('0x')) {
+        computedEvm = address;
+      } else {
+        try {
+          const { AccountId } = await import("@hashgraph/sdk");
+          const evm = AccountId.fromString(address).toSolidityAddress();
+          computedEvm = evm.startsWith('0x') ? evm : `0x${evm}`;
+        } catch {
+          computedEvm = null;
+        }
+      }
     }
     const user = await prisma.user.create({
       data: {
         userName: userName || null,
         address,
+        evmAddress: computedEvm ?? undefined,
       },
     });
     return user;
