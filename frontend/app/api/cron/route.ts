@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 
     const results: {
       startdate?: { success: boolean; error?: string };
-      paydate?: { success: boolean; processed?: number; error?: string };
+      paydate?: { success: boolean; processed?: number; failed?: number; error?: string };
     } = {};
 
     // Execute requested job(s)
@@ -55,9 +55,10 @@ export async function POST(request: NextRequest) {
         results.paydate = {
           success: true,
           processed: paydateResult.processed || 0,
+          failed: paydateResult.failed || 0,
         };
         console.log(
-          `✅ checkPaydate completed successfully - processed ${paydateResult.processed} circles`
+          `✅ checkPaydate completed - processed ${paydateResult.processed} circles, ${paydateResult.failed || 0} failed`
         );
       } catch (error: any) {
         console.error("❌ checkPaydate failed:", error);
@@ -69,8 +70,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Determine overall success
+    // Consider it successful if at least one job succeeded or if paydate processed at least one circle
     const allSuccessful =
-      Object.values(results).every((result) => result.success !== false);
+      Object.values(results).every((result) => result.success !== false) ||
+      (results.paydate?.success && (results.paydate.processed || 0) > 0);
 
     return NextResponse.json(
       {

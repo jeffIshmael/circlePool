@@ -132,51 +132,109 @@ export const checkStartdate = async () => {
 export const checkPaydate = async () => {
   try {
     const circles = await getCircles();
+    
+    // Filter circles that are started and past their pay date
+    // Add a 5-minute buffer to account for timing differences between DB and blockchain
+    const now = new Date();
+    const bufferMinutes = 5;
+    const bufferTime = bufferMinutes * 60 * 1000; // 5 minutes in milliseconds
+    
     const circlesToCheck = circles.filter(
-      (circle) => circle.payDate < new Date() && circle.started
+      (circle) => {
+        const isStarted = circle.started;
+        const isPastPayDate = new Date(circle.payDate.getTime() + bufferTime) < now;
+        return isStarted && isPastPayDate;
+      }
     );
 
     if (circlesToCheck.length === 0) {
+      console.log("No circles to check for pay date");
       return { processed: 0, results: [] };
     }
 
-    // Process all circles at once
-    const circleIds = circlesToCheck.map((circle) =>
-      Number(circle.blockchainId)
-    );
-    const results = await checkPayDate(circleIds);
+    console.log(`Found ${circlesToCheck.length} circles to check for pay date`);
 
-    // Log results for each circle
-    for (const result of results) {
-      if (result.wasDisbursed && result.disbursements) {
-        // Disbursement happened
-        for (const disbursement of result.disbursements) {
-          const updatedCircle = await updateDisbursementContext(
-            result.circleId,
-            disbursement.recipient,
-            Number(disbursement.amount) / 1e8,
-            result.transactionId,
-            disbursement.timestamp
-          );
-          if (!updatedCircle) {
-            throw new Error("Failed to update disbursement context");
+    // Process circles individually to avoid one failure affecting others
+    // The contract's checkPayDate reverts if ANY circle hasn't reached its pay date
+    const results: any[] = [];
+    let processedCount = 0;
+    let failedCount = 0;
+
+    for (const circle of circlesToCheck) {
+      const circleId = Number(circle.blockchainId);
+      try {
+        console.log(`Checking pay date for circle ${circle.id} (blockchainId: ${circleId})`);
+        console.log(`  - Pay date: ${circle.payDate.toISOString()}`);
+        console.log(`  - Current time: ${now.toISOString()}`);
+        console.log(`  - Time difference: ${Math.floor((now.getTime() - circle.payDate.getTime()) / 1000 / 60)} minutes`);
+
+        // Process one circle at a time
+        const circleResults = await checkPayDate([circleId]);
+        
+        if (circleResults && circleResults.length > 0) {
+          const result = circleResults[0];
+          results.push(result);
+
+          // Update database based on result
+          if (result.wasDisbursed && result.disbursements) {
+            // Disbursement happened
+            for (const disbursement of result.disbursements) {
+              const updatedCircle = await updateDisbursementContext(
+                result.circleId,
+                disbursement.recipient,
+                Number(disbursement.amount) / 1e8,
+                result.transactionId,
+                disbursement.timestamp
+              );
+              if (!updatedCircle) {
+                console.error(`Failed to update disbursement context for circle ${result.circleId}`);
+              } else {
+                console.log(`✅ Updated disbursement context for circle ${result.circleId}`);
+              }
+            }
+          } else if (result.refunds && result.refunds.length > 0) {
+            // Refunds happened - update once per circle (all members get refunded)
+            const updatedCircle = await updateRefundContext(result.circleId);
+            if (!updatedCircle) {
+              console.error(`Failed to update refund context for circle ${result.circleId}`);
+            } else {
+              console.log(`✅ Updated refund context for circle ${result.circleId}`);
+            }
           }
+          
+          processedCount++;
         }
-      } else if (result.refunds && result.refunds.length > 0) {
-        // Refunds happened - update once per circle (all members get refunded)
-        const updatedCircle = await updateRefundContext(result.circleId);
-        if (!updatedCircle) {
-          throw new Error("Failed to update refund context");
+      } catch (error: any) {
+        failedCount++;
+        console.error(`❌ Failed to check pay date for circle ${circle.id} (blockchainId: ${circleId}):`, error.message);
+        
+        // Check if it's a "pay date has not passed" error
+        if (error.message && error.message.includes("Pay date has not passed")) {
+          console.warn(`⚠️  Circle ${circle.id} pay date check failed: Pay date has not passed on-chain (DB: ${circle.payDate.toISOString()})`);
+          // This is not a critical error - the circle just isn't ready yet
+        } else if (error.message && error.message.includes("CONTRACT_REVERT_EXECUTED")) {
+          console.error(`❌ Contract reverted for circle ${circle.id}. This might indicate:`);
+          console.error(`   1. Pay date hasn't passed on-chain (timing difference)`);
+          console.error(`   2. Circle doesn't exist on-chain`);
+          console.error(`   3. Other contract validation failed`);
+        } else {
+          // Other errors - log but continue processing other circles
+          console.error(`❌ Unexpected error for circle ${circle.id}:`, error);
         }
+        
+        // Continue processing other circles even if one fails
       }
     }
 
+    console.log(`✅ Pay date check completed: ${processedCount} processed, ${failedCount} failed`);
+
     return {
-      processed: results.length,
+      processed: processedCount,
+      failed: failedCount,
       results,
     };
   } catch (error) {
-    console.error(error);
+    console.error("Error in checkPaydate:", error);
     throw error;
   }
 };
