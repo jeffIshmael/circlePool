@@ -497,6 +497,99 @@ export async function checkPayDate(
 }
 
 /**
+ * Get circle data from the contract (including pay date)
+ * @param circleId - The ID of the circle
+ * @returns Circle data including pay date, round, cycle, etc.
+ */
+export async function getCircleFromContract(circleId: number): Promise<{
+  payDate: number;
+  amount: number;
+  startDate: number;
+  duration: number;
+  round: number;
+  cycle: number;
+  admin: string;
+  members: string[];
+  loanableAmount: number;
+  interestPercent: number;
+  leftPercent: number;
+}> {
+  const {
+    ContractCallQuery,
+    ContractFunctionParameters,
+    ContractId,
+    Hbar,
+  } = await import("@hashgraph/sdk");
+  
+  try {
+    const client = await getHederaClient();
+    const contractId = ContractId.fromString(CONTRACT_ID);
+    
+    const query = new ContractCallQuery()
+      .setContractId(contractId)
+      .setGas(300000)
+      .setFunction(
+        "getCircle",
+        new ContractFunctionParameters().addUint256(circleId)
+      )
+      .setQueryPayment(new Hbar(0.2));
+    
+    const result = await query.execute(client);
+    
+    // Parse getCircle return: (payDate, amount, startDate, duration, round, cycle, admin, members[], loanableAmount, interestPercent, leftPercent)
+    const payDate = result.getUint256(0).toNumber();
+    const amount = result.getUint256(1).toNumber();
+    const startDate = result.getUint256(2).toNumber();
+    const duration = result.getUint256(3).toNumber();
+    const round = result.getUint256(4).toNumber();
+    const cycle = result.getUint256(5).toNumber();
+    const admin = result.getAddress(6)?.toString() || "";
+    
+    // Parse members array (dynamic array)
+    const membersOffsetBytes = result.getUint256(7).toNumber();
+    const membersLengthSlot = membersOffsetBytes / 32;
+    const membersLength = result.getUint256(membersLengthSlot).toNumber();
+    const members: string[] = [];
+    
+    for (let i = 0; i < membersLength; i++) {
+      try {
+        let address = result.getAddress(membersLengthSlot + 1 + i);
+        // Normalize address format
+        if (address && !address.startsWith('0x') && address.length === 40) {
+          address = '0x' + address;
+        }
+        if (address && address.startsWith('0x') && address.length === 42) {
+          members.push(address);
+        }
+      } catch (e) {
+        break;
+      }
+    }
+    
+    const loanableAmount = result.getUint256(membersLengthSlot + 1 + membersLength).toNumber();
+    const interestPercent = result.getUint256(membersLengthSlot + 2 + membersLength).toNumber();
+    const leftPercent = result.getUint256(membersLengthSlot + 3 + membersLength).toNumber();
+    
+    return {
+      payDate,
+      amount,
+      startDate,
+      duration,
+      round,
+      cycle,
+      admin,
+      members,
+      loanableAmount,
+      interestPercent,
+      leftPercent,
+    };
+  } catch (error: any) {
+    console.error("Error getting circle from contract:", error);
+    throw new Error(`Failed to get circle from contract: ${error.message}`);
+  }
+}
+
+/**
  * Get on-chain members for a circle from the contract
  * @param circleId - The ID of the circle
  * @returns Array of member EVM addresses
