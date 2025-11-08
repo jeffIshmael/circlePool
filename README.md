@@ -9,7 +9,7 @@ Through CirclePool, users can create or join savings circles, contribute funds p
 ## 🌟 Features
 
 - **💼 Savings Circles**: Create and manage rotating savings groups (chamas)
-- **💰 Micro-Loans**: Enable loans from the growing group fund with interest
+- **💰 Micro-Loans**: Enable loans from the growing group fund with interest (requires approval from all members)
 - **🔐 Blockchain-Powered**: Built on Hedera Hashgraph for secure, transparent transactions
 - **🌍 Borderless Participation**: Join circles across regions and countries
 - **👥 Member Management**: Private invite links and admin approval for secure membership
@@ -92,7 +92,7 @@ Each round, a designated member receives their payout, while a portion of the co
 
 ### 4. Borrow and Repay
 
-Members can request loans from the retained pool and repay with interest, as defined in the circle's parameters. This process transforms the traditional chama into a self-sustaining ecosystem where funds circulate, generate interest, and expand the collective pool for everyone's benefit.
+Members can request loans from the retained pool and repay with interest, as defined in the circle's parameters. **All members must approve a loan request before it can be processed**, ensuring transparency and maintaining the decentralized, community-driven nature of the circle. This collective approval process prevents unilateral decisions and ensures all members have a say in how the shared pool is used. Once approved by all members, the loan is processed and the funds are transferred. This process transforms the traditional chama into a self-sustaining ecosystem where funds circulate, generate interest, and expand the collective pool for everyone's benefit.
 
 ### 5. Transparent Reporting
 
@@ -105,6 +105,8 @@ CirclePool provides real-time dashboards where members can view the group's bala
 - **🎲 Payout Schedule**: To ensure fairness, CirclePool automatically determines the payout order randomly when a circle starts. This prevents bias and ensures equal opportunity for all members.
 
 - **⏰ Deposit Discipline**: If a payout date arrives and a member has **not made their contribution**, the system automatically refunds all members instead of issuing a payout. This ensures all members contribute fairly.
+
+- **🤝 Collective Loan Approval**: All members must approve a loan request before it can be processed. This decentralized approval process ensures transparency, prevents unilateral decisions, and maintains the community-driven nature of the circle. No single member can approve loans on their own, protecting the shared pool from misuse.
 
 - **📅 Loan Period**: The maximum loan period is 3 months, ensuring funds remain active and available for future lending.
 
@@ -260,7 +262,8 @@ The application uses Prisma ORM. To modify the database schema:
 2. Select the circle
 3. Enter loan amount and duration
 4. Submit loan request
-5. Wait for approval and funds transfer
+5. **All members of the circle must approve the loan request** - this ensures transparency and maintains the decentralized, community-driven decision-making process
+6. Once all members have approved, the loan is processed and funds are transferred
 
 ### Viewing Payout Order
 
