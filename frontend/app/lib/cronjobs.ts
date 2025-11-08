@@ -9,7 +9,7 @@ import {
   updateDisbursementContext,
   updateRefundContext,
 } from "./prismafunctions";
-import { setPayoutOrder, checkPayDate, getOnChainMembers } from "../services/aiAgentService";
+import { setPayoutOrder, checkPayDate, getOnChainMembers, getCircleFromContract } from "../services/aiAgentService";
 
 interface PayoutOrder {
   userAddress: string; // Hedera account ID (0.0.x) for DB consistency
@@ -21,10 +21,10 @@ interface PayoutOrder {
 // function to check startdate and set it as started if the time has passed
 export const checkStartdate = async () => {
   try {
-    const circles = await getCircles();
-    for (const circle of circles) {
-      if (!circle.started && circle.startDate < new Date()) {
-        // set as started and set the payout order
+  const circles = await getCircles();
+  for (const circle of circles) {
+    if (!circle.started && circle.startDate < new Date()) {
+      // set as started and set the payout order
         // IMPORTANT: Use on-chain members to ensure exact match with contract
         // The contract requires payout order length to exactly match on-chain members count
         let onChainMemberAddresses: string[] = [];
@@ -109,7 +109,7 @@ export const checkStartdate = async () => {
                 circle.payDate.getTime() +
                   circle.cycleTime * 24 * 60 * 60 * 1000 * index
               ),
-              paid: false,
+        paid: false,
             };
           })
         );
@@ -132,51 +132,267 @@ export const checkStartdate = async () => {
 export const checkPaydate = async () => {
   try {
     const circles = await getCircles();
+    
+    // Filter circles that are started and past their pay date
+    // Add a 5-minute buffer to account for timing differences between DB and blockchain
+    const now = new Date();
+    const bufferMinutes = 5;
+    const bufferTime = bufferMinutes * 60 * 1000; // 5 minutes in milliseconds
+    
     const circlesToCheck = circles.filter(
-      (circle) => circle.payDate < new Date() && circle.started
+      (circle) => {
+        const isStarted = circle.started;
+        const isPastPayDate = new Date(circle.payDate.getTime() + bufferTime) < now;
+        return isStarted && isPastPayDate;
+      }
     );
 
     if (circlesToCheck.length === 0) {
+      console.log("No circles to check for pay date");
       return { processed: 0, results: [] };
     }
 
-    // Process all circles at once
-    const circleIds = circlesToCheck.map((circle) =>
-      Number(circle.blockchainId)
-    );
-    const results = await checkPayDate(circleIds);
+    console.log(`Found ${circlesToCheck.length} circles to check for pay date`);
 
-    // Log results for each circle
-    for (const result of results) {
-      if (result.wasDisbursed && result.disbursements) {
-        // Disbursement happened
-        for (const disbursement of result.disbursements) {
-          const updatedCircle = await updateDisbursementContext(
-            result.circleId,
-            disbursement.recipient,
-            Number(disbursement.amount) / 1e8,
-            result.transactionId,
-            disbursement.timestamp
-          );
-          if (!updatedCircle) {
-            throw new Error("Failed to update disbursement context");
+    // Process circles individually to avoid one failure affecting others
+    // The contract's checkPayDate reverts if ANY circle hasn't reached its pay date
+    const results: any[] = [];
+    let processedCount = 0;
+    let failedCount = 0;
+
+    for (const circle of circlesToCheck) {
+      const circleId = Number(circle.blockchainId);
+      try {
+        console.log(`Checking pay date for circle ${circle.id} (blockchainId: ${circleId})`);
+        console.log(`  - DB Pay date: ${circle.payDate.toISOString()}`);
+        console.log(`  - Current time: ${now.toISOString()}`);
+        console.log(`  - Time difference: ${Math.floor((now.getTime() - circle.payDate.getTime()) / 1000 / 60)} minutes`);
+
+        // First, query the contract to get the actual pay date
+        // This ensures we sync with the contract state before processing
+        let contractCircle: Awaited<ReturnType<typeof getCircleFromContract>> | null = null;
+        try {
+          contractCircle = await getCircleFromContract(circleId);
+          const contractPayDate = new Date(contractCircle.payDate * 1000);
+          const dbPayDate = circle.payDate;
+          
+          console.log(`  - Contract Pay date: ${contractPayDate.toISOString()}`);
+          console.log(`  - Pay date difference: ${Math.floor((contractPayDate.getTime() - dbPayDate.getTime()) / 1000 / 60)} minutes`);
+          
+          // If contract pay date is different from DB pay date, sync the database
+          // This handles cases where the contract was updated but DB wasn't
+          if (Math.abs(contractPayDate.getTime() - dbPayDate.getTime()) > 60000) { // More than 1 minute difference
+            console.warn(`⚠️  Pay date mismatch detected for circle ${circle.id}:`);
+            console.warn(`    DB: ${dbPayDate.toISOString()}`);
+            console.warn(`    Contract: ${contractPayDate.toISOString()}`);
+            console.warn(`    Syncing database with contract state...`);
+            
+            // Sync database with contract state
+            // Use prisma from prismafunctions
+            const { PrismaClient } = await import("@prisma/client");
+            const globalForPrisma = globalThis as unknown as {
+                prisma: InstanceType<typeof PrismaClient> | undefined;
+              };
+              
+              const prisma =
+                globalForPrisma.prisma ??
+                new PrismaClient({
+                  log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
+                });
+              
+              if (!globalForPrisma.prisma) {
+                globalForPrisma.prisma = prisma;
+              }
+              
+              await prisma.circle.update({
+                where: { id: circle.id },
+                data: {
+                  payDate: contractPayDate,
+                  round: contractCircle.round,
+                  cycle: contractCircle.cycle,
+                },
+              });
+              
+              console.log(`✅ Synced database with contract for circle ${circle.id}`);
+              console.log(`    Updated pay date: ${contractPayDate.toISOString()}`);
+              console.log(`    Updated round: ${contractCircle.round}, cycle: ${contractCircle.cycle}`);
+              
+              // Update the circle object for this iteration
+              circle.payDate = contractPayDate;
           }
+          
+          // Check if contract's pay date has actually passed
+          const contractPayDatePassed = contractPayDate < now;
+          if (!contractPayDatePassed) {
+            console.log(`⏭️  Skipping circle ${circle.id}: Contract pay date (${contractPayDate.toISOString()}) has not passed yet`);
+            continue; // Skip this circle
+          }
+        } catch (syncError: any) {
+          console.error(`❌ Failed to sync with contract for circle ${circle.id}:`, syncError.message);
+          // Continue to try processing anyway - might be a query issue
         }
-      } else if (result.refunds && result.refunds.length > 0) {
-        // Refunds happened - update once per circle (all members get refunded)
-        const updatedCircle = await updateRefundContext(result.circleId);
-        if (!updatedCircle) {
-          throw new Error("Failed to update refund context");
+
+        // Process one circle at a time
+        const circleResults = await checkPayDate([circleId]);
+        
+        if (circleResults && circleResults.length > 0) {
+          const result = circleResults[0];
+          results.push(result);
+
+          // Update database based on result
+          // IMPORTANT: Wrap in try-catch to ensure errors don't prevent processing other circles
+          // If the contract transaction succeeded, we MUST update the database
+          try {
+            if (result.wasDisbursed && result.disbursements) {
+              // Disbursement happened
+              for (const disbursement of result.disbursements) {
+                try {
+                  const updatedCircle = await updateDisbursementContext(
+                    result.circleId,
+                    disbursement.recipient,
+                    Number(disbursement.amount) / 1e8,
+                    result.transactionId,
+                    disbursement.timestamp
+                  );
+                  if (!updatedCircle) {
+                    console.error(`❌ Failed to update disbursement context for circle ${result.circleId}`);
+                    // This is critical - contract succeeded but DB update failed
+                    // We should retry or alert
+                  } else {
+                    console.log(`✅ Updated disbursement context for circle ${result.circleId}`);
+                  }
+                } catch (dbError: any) {
+                  console.error(`❌ CRITICAL: Database update failed for disbursement in circle ${result.circleId}:`, dbError.message);
+                  console.error(`   Contract transaction succeeded (tx: ${result.transactionId}), but database update failed!`);
+                  console.error(`   This means the contract state is updated but the database is not in sync.`);
+                  // Re-throw to be caught by outer handler
+                  throw dbError;
+                }
+              }
+            } else if (result.refunds && result.refunds.length > 0) {
+              // Refunds happened - update once per circle (all members get refunded)
+              try {
+                const updatedCircle = await updateRefundContext(result.circleId);
+                if (!updatedCircle) {
+                  console.error(`❌ Failed to update refund context for circle ${result.circleId}`);
+                  // This is critical - contract succeeded but DB update failed
+                } else {
+                  console.log(`✅ Updated refund context for circle ${result.circleId}`);
+                }
+              } catch (dbError: any) {
+                console.error(`❌ CRITICAL: Database update failed for refund in circle ${result.circleId}:`, dbError.message);
+                console.error(`   Contract transaction succeeded (tx: ${result.transactionId}), but database update failed!`);
+                console.error(`   This means the contract state is updated but the database is not in sync.`);
+                // Re-throw to be caught by outer handler
+                throw dbError;
+              }
+            } else {
+              // No disbursements or refunds detected - this might mean:
+              // 1. The transaction didn't actually process anything (contract already processed it)
+              // 2. The payment detection failed
+              // 3. The transaction succeeded but payments weren't recorded yet
+              console.warn(`⚠️  No disbursements or refunds detected for circle ${result.circleId} after checkPayDate`);
+              console.warn(`   Transaction ID: ${result.transactionId}`);
+              console.warn(`   This might indicate the contract already processed this pay date.`);
+              
+              // IMPORTANT: If the contract transaction succeeded but no payments were detected,
+              // the contract state might have been updated (pay date moved forward)
+              // We should sync the database with the contract state to prevent future mismatches
+              try {
+                console.log(`   Attempting to sync database with contract state...`);
+                const contractCircle = await getCircleFromContract(circleId);
+                const contractPayDate = new Date(contractCircle.payDate * 1000);
+                const dbPayDate = circle.payDate;
+                
+                // If contract pay date is different from DB, sync it
+                if (Math.abs(contractPayDate.getTime() - dbPayDate.getTime()) > 60000) {
+                  console.warn(`   Contract pay date (${contractPayDate.toISOString()}) differs from DB (${dbPayDate.toISOString()})`);
+                  console.warn(`   Syncing database with contract state...`);
+                  
+                  // Sync database with contract state
+                  const { PrismaClient } = await import("@prisma/client");
+                  const globalForPrisma = globalThis as unknown as {
+                    prisma: InstanceType<typeof PrismaClient> | undefined;
+                  };
+                  
+                  const prisma =
+                    globalForPrisma.prisma ??
+                    new PrismaClient({
+                      log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
+                    });
+                  
+                  if (!globalForPrisma.prisma) {
+                    globalForPrisma.prisma = prisma;
+                  }
+                  
+                  await prisma.circle.update({
+                    where: { id: circle.id },
+                    data: {
+                      payDate: contractPayDate,
+                      round: contractCircle.round,
+                      cycle: contractCircle.cycle,
+                    },
+                  });
+                  
+                  console.log(`   ✅ Synced database with contract state`);
+                  console.log(`      Updated pay date: ${contractPayDate.toISOString()}`);
+                  console.log(`      Updated round: ${contractCircle.round}, cycle: ${contractCircle.cycle}`);
+                } else {
+                  console.log(`   Contract and database pay dates match - no sync needed`);
+                }
+              } catch (syncError: any) {
+                console.error(`   ❌ Failed to sync database with contract state:`, syncError.message);
+              }
+            }
+            
+            processedCount++;
+          } catch (dbUpdateError: any) {
+            // Database update failed - this is critical because the contract already succeeded
+            console.error(`❌ CRITICAL ERROR: Contract transaction succeeded but database update failed for circle ${result.circleId}`);
+            console.error(`   Transaction ID: ${result.transactionId}`);
+            console.error(`   Error: ${dbUpdateError.message}`);
+            console.error(`   The contract state is now out of sync with the database!`);
+            console.error(`   Action required: Manually sync the database or retry the database update.`);
+            
+            // Don't increment processedCount since DB update failed
+            // But don't throw - continue processing other circles
+            failedCount++;
+          }
+        } else {
+          // No results returned - this shouldn't happen if transaction succeeded
+          console.warn(`⚠️  checkPayDate returned no results for circle ${circle.id} (blockchainId: ${circleId})`);
         }
+      } catch (error: any) {
+        failedCount++;
+        console.error(`❌ Failed to check pay date for circle ${circle.id} (blockchainId: ${circleId}):`, error.message);
+        
+        // Check if it's a "pay date has not passed" error
+        if (error.message && error.message.includes("Pay date has not passed")) {
+          console.warn(`⚠️  Circle ${circle.id} pay date check failed: Pay date has not passed on-chain (DB: ${circle.payDate.toISOString()})`);
+          // This is not a critical error - the circle just isn't ready yet
+        } else if (error.message && error.message.includes("CONTRACT_REVERT_EXECUTED")) {
+          console.error(`❌ Contract reverted for circle ${circle.id}. This might indicate:`);
+          console.error(`   1. Pay date hasn't passed on-chain (timing difference)`);
+          console.error(`   2. Circle doesn't exist on-chain`);
+          console.error(`   3. Other contract validation failed`);
+        } else {
+          // Other errors - log but continue processing other circles
+          console.error(`❌ Unexpected error for circle ${circle.id}:`, error);
+        }
+        
+        // Continue processing other circles even if one fails
       }
     }
 
+    console.log(`✅ Pay date check completed: ${processedCount} processed, ${failedCount} failed`);
+
     return {
-      processed: results.length,
+      processed: processedCount,
+      failed: failedCount,
       results,
     };
   } catch (error) {
-    console.error(error);
+    console.error("Error in checkPaydate:", error);
     throw error;
   }
 };

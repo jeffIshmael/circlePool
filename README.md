@@ -2,19 +2,24 @@
 
 **Transform your savings group into a community bank**
 
-CirclePool brings the traditional rotating savings model online, but with a powerful twist: a portion of each payout (set by the circle creator) stays in the group fund, creating a growing reserve that enables micro-loans and sustainable wealth building for your community.
+CirclePool is a decentralized rotational savings and lending platform built on Hedera Hashgraph. It reimagines traditional chamas (group savings circles) by bringing them on-chain, ensuring transparency, automation, and wealth growth for members, regardless of geography.
+
+Through CirclePool, users can create or join savings circles, contribute funds periodically, and receive payouts in rotation (just like a traditional chama) but with an added twist: **A small portion of every payout is retained in a shared liquidity pool**, enabling **group lending**, **interest earnings**, and **long-term wealth growth**.
 
 ## 🌟 Features
 
-- **💼 Savings Circles**: Create and manage rotating savings groups
+- **💼 Savings Circles**: Create and manage rotating savings groups (chamas)
 - **💰 Micro-Loans**: Enable loans from the growing group fund with interest
 - **🔐 Blockchain-Powered**: Built on Hedera Hashgraph for secure, transparent transactions
-- **👥 Member Management**: Easy member onboarding and payout order management
+- **🌍 Borderless Participation**: Join circles across regions and countries
+- **👥 Member Management**: Private invite links and admin approval for secure membership
 - **📊 Real-time Tracking**: Monitor balances, payments, loan status, and payout schedules
 - **🔔 Notifications**: Stay updated on circle activities and requests
 - **⏰ Automated Payouts**: Automated cron jobs for circle start dates and payout processing
 - **📅 Payout Order Tracking**: Automatic tracking and display of payout order with pay dates and amounts paid
+- **💎 Shared Liquidity Pool**: A percentage of each payout stays in the pool for lending and growth
 - **📱 Responsive Design**: Works seamlessly on desktop and mobile devices
+- **🔍 On-chain Transparency**: Every transaction recorded publicly on Hedera network
 
 ## 🏗️ Tech Stack
 
@@ -29,13 +34,87 @@ CirclePool brings the traditional rotating savings model online, but with a powe
 ### Backend
 - **Database**: PostgreSQL (via Prisma ORM)
 - **Blockchain**: Hedera Hashgraph
-- **Wallet Integration**: HashConnect (HashPack, Blade, etc.)
+- **Wallet Integration**: WalletConnect (HashPack, Blade, etc.)
 - **API Routes**: Next.js API Routes
 
 ### Smart Contracts
 - **Framework**: Hardhat
 - **Language**: Solidity ^0.8.28
-- **Network**: Hedera Hashgraph Testnet/Mainnet
+- **Network**: Hedera Hashgraph Testnet
+
+## 🎯 The Problem
+
+Traditional savings groups (chamas, SACCOs, merry-go-rounds, etc.) play a vital role in community finance — but they remain plagued by several challenges:
+
+- **🌍 Geographical Barriers**: Traditional chamas rely on physical meetings and local trust networks, preventing participation from members across regions or countries.
+
+- **👁️ Lack of Transparency**: Traditional chamas depend on manual record-keeping and trust. Mismanagement, fraud, and poor accountability often lead to loss of funds or conflicts among members.
+
+- **🏦 Limited Financial Inclusion**: Many individuals outside formal banking systems rely solely on these informal groups, which restricts access to loans, investments, and credit history.
+
+- **📈 No Mechanism for Wealth Growth**: Once members receive their payout, money leaves the system. There's no structured way to grow the collective pool or enable internal lending with fair interest.
+
+## 💡 The Solution
+
+CirclePool bridges the gap between community finance and decentralized technology. It transforms informal savings circles into digital, borderless, and self-sustaining ecosystems that empower users to save, borrow, and grow wealth transparently:
+
+- **🤖 Smart Contracts Automate Trust**: Contributions, payouts, and loans are managed by Hedera smart contracts, eliminating manual handling and guaranteeing fairness.
+
+- **💎 Shared Liquidity Pool**: A percentage of every payout remains in the collective pool. This pool becomes the group's internal lending and earning mechanism.
+
+- **💰 Borrow and Repay with Interest**: Members can apply for loans directly from the retained pool, paying back with interest that grows the group's overall funds.
+
+- **🌐 Borderless and Inclusive**: Built on Hedera, CirclePool enables participation across regions and currencies — with fast and low-cost transactions.
+
+- **🔍 On-chain Transparency**: Every transaction is recorded publicly on the Hedera network, creating full accountability and visibility for all members.
+
+## 🔄 How CirclePool Works
+
+### 1. Create/Join a Circle
+
+**Creating**: Any user can create a circle and define the circle's parameters:
+- Circle name
+- Contribution amount (HBAR)
+- Period of contribution
+- Start date
+- Retention percentage (portion kept in pool)
+- Loan interest rate
+
+**Joining**: To join an existing circle, you'll need a **private invitation link** shared by the circle admin or an existing member. Once you request to join, the admin reviews and approves your membership before you're officially added to the group. This process keeps circles private and secure, while ensuring only trusted members can participate.
+
+### 2. Contribute Funds
+
+Members contribute funds in HBAR at the defined contribution intervals. All deposits are automatically managed by the CirclePool smart contract, which securely locks and tracks all transactions on Hedera's distributed ledger.
+
+### 3. Payout & Pool Growth
+
+Each round, a designated member receives their payout, while a portion of the contribution (determined by the retention percentage set during circle creation) is retained in the group's shared pool. This retained amount acts as the foundation for the group's internal lending system. Over time, it grows into a sustainable community fund that benefits all members.
+
+### 4. Borrow and Repay
+
+Members can request loans from the retained pool and repay with interest, as defined in the circle's parameters. This process transforms the traditional chama into a self-sustaining ecosystem where funds circulate, generate interest, and expand the collective pool for everyone's benefit.
+
+### 5. Transparent Reporting
+
+CirclePool provides real-time dashboards where members can view the group's balance, contribution records, loan requests, and upcoming payout schedules. Every transaction is recorded on-chain, ensuring complete transparency and accountability within each group.
+
+## 🔒 Security Measures
+
+- **👥 Membership Security**: CirclePool recommends that members form circles with family, friends, or trusted peers. Joining requires a private invite link and admin approval, helping to prevent unauthorized access and maintain trust within the group.
+
+- **🎲 Payout Schedule**: To ensure fairness, CirclePool automatically determines the payout order randomly when a circle starts. This prevents bias and ensures equal opportunity for all members.
+
+- **⏰ Deposit Discipline**: If a payout date arrives and a member has **not made their contribution**, the system automatically refunds all members instead of issuing a payout. This ensures all members contribute fairly.
+
+- **📅 Loan Period**: The maximum loan period is 3 months, ensuring funds remain active and available for future lending.
+
+## ⚠️ Current Limitations
+
+### Loan Defaults
+
+Currently, CirclePool does not have built-in mechanisms to enforce loan repayment or handle default cases. If a member fails to repay a loan or stops contributing after receiving a payout, the contract cannot recover those funds automatically.
+
+**Recommended Solution**: CirclePool encourages forming circles with trusted individuals who share common goals. In future versions, reputation scoring, collateralized loans, or staking-based guarantees may be introduced to mitigate such risks.
 
 ## 📁 Project Structure
 
@@ -65,7 +144,7 @@ circle-pool/
 - Node.js 20+ and npm
 - PostgreSQL database
 - Hedera account for smart contract deployment
-- HashPack or compatible Hedera wallet
+- HashPack or compatible Hedera wallet (via WalletConnect)
 
 ### Installation
 
@@ -155,24 +234,25 @@ The application uses Prisma ORM. To modify the database schema:
 
 ### Creating a Circle
 
-1. Connect your Hedera wallet using HashConnect
+1. Connect your Hedera wallet using WalletConnect
 2. Navigate to "Create Circle"
 3. Fill in circle details:
    - Circle name
-   - Contribution amount
+   - Contribution amount (in HBAR)
    - Start date
    - Cycle time (days between payments)
    - Maximum members
    - Interest percentage (for loans)
-   - Left percentage (reserve fund)
+   - Retention percentage (portion kept in shared pool)
 4. Submit to create the circle on-chain
 
 ### Joining a Circle
 
-1. Browse available circles
-2. Request to join a circle
-3. Wait for admin approval
-4. Once approved, deposit your contribution
+1. Receive a private invitation link from the circle admin or an existing member
+2. Click the link to view the circle details
+3. Request to join the circle
+4. Wait for admin approval
+5. Once approved, deposit your contribution at the defined intervals
 
 ### Requesting a Loan
 
@@ -226,10 +306,14 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 This project is licensed under the MIT License.
 
+## 📚 Additional Resources
+
+For detailed information about the blockchain integration, see [BLOCKCHAIN_INTEGRATION.md](./frontend/BLOCKCHAIN_INTEGRATION.md).
+
 ## 🙏 Acknowledgments
 
 - Built on [Hedera Hashgraph](https://hedera.com/)
-- Powered by [HashConnect](https://www.hashpack.app/)
+- Powered by [WalletConnect](https://walletconnect.com/) and [HashPack](https://www.hashpack.app/)
 - UI components from [Lucide](https://lucide.dev/)
 
 
